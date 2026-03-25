@@ -27,4 +27,24 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Response interceptor for handling 401s globally
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      // Clear session on 401
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('isCheckedIn');
+      localStorage.removeItem('tenantSlug');
+      
+      // If we're not already on the login page, redirect
+      if (!window.location.pathname.includes('/login')) {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default api;
