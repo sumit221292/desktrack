@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, Plus, Edit, Trash2, Shield, Layout, Database, Users, Clock, Calendar as CalendarIcon, TrendingUp } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -10,29 +10,45 @@ import { Modal } from '../components/ui/Modal';
 import { motion } from 'framer-motion';
 
 const Settings = () => {
-  const { shifts, setShifts } = useAuth();
+  const { shifts, setShifts, enabledModules, setEnabledModules } = useAuth();
   const [activeTab, setActiveTab] = useState('shifts');
   const [showModal, setShowModal] = useState(false);
   const [showShiftModal, setShowShiftModal] = useState(false);
   const [editingField, setEditingField] = useState(null);
   const [editingShift, setEditingShift] = useState(null);
 
-  // Dummy Custom Fields Data
+  // Custom Fields Data
   const [customFields, setCustomFields] = useState([]);
+  const [loadingFields, setLoadingFields] = useState(false);
+
+  useEffect(() => {
+    const fetchFields = async () => {
+      setLoadingFields(true);
+      try {
+        const response = await api.get('/custom-fields?module=employees');
+        setCustomFields(response.data);
+      } catch (err) {
+        console.error('Error fetching custom fields:', err);
+      } finally {
+        setLoadingFields(false);
+      }
+    };
+    fetchFields();
+  }, []);
 
   const [formData, setFormData] = useState({
     moduleName: 'Employees', fieldName: '', fieldType: 'text', isRequired: false, options: ''
   });
 
-  // Dummy Modules Data
-  const [modules, setModules] = useState([
-    { id: '1', name: 'Employees', description: 'Core employee directory and profiles', enabled: true, icon: Users },
-    { id: '2', name: 'Attendance', description: 'Track check-ins, check-outs and shifts', enabled: true, icon: Clock },
-    { id: '3', name: 'Leaves', description: 'Leave application and approval flow', enabled: true, icon: CalendarIcon },
-    { id: '4', name: 'Payroll', description: 'Salary processing and payslips', enabled: true, icon: Database },
-    { id: '5', name: 'Reports', description: 'Advanced analytics and PDF exports', enabled: true, icon: Layout },
-    { id: '6', name: 'Performance', description: 'KPIs and appraisals (Beta)', enabled: false, icon: TrendingUp },
-  ]);
+  // Modules metadata
+  const moduleMetadata = [
+    { id: 'employees', name: 'Employees', description: 'Core employee directory and profiles', icon: Users },
+    { id: 'attendance', name: 'Attendance', description: 'Track check-ins, check-outs and shifts', icon: Clock },
+    { id: 'leaves', name: 'Leaves', description: 'Leave application and approval flow', icon: CalendarIcon },
+    { id: 'payroll', name: 'Payroll', description: 'Salary processing and payslips', icon: Database },
+    { id: 'reports', name: 'Reports', description: 'Advanced analytics and PDF exports', icon: Layout },
+    { id: 'performance', name: 'Performance', description: 'KPIs and appraisals (Beta)', icon: TrendingUp },
+  ];
 
   // Roles and Shifts are now handled or will be handled via global state/context for demo persistence
   const [roles, setRoles] = useState([
@@ -52,7 +68,13 @@ const Settings = () => {
   const handleOpenModal = (field = null) => {
     if (field) {
       setEditingField(field);
-      setFormData(field);
+      setFormData({
+        moduleName: field.module_name || 'Employees',
+        fieldName: field.field_name,
+        fieldType: field.field_type,
+        isRequired: field.is_required,
+        options: typeof field.options === 'string' ? field.options : JSON.stringify(field.options)
+      });
     } else {
       setEditingField(null);
       setFormData({ moduleName: 'Employees', fieldName: '', fieldType: 'text', isRequired: false, options: '' });
@@ -60,19 +82,35 @@ const Settings = () => {
     setShowModal(true);
   };
 
-  const handleSaveField = (e) => {
+  const handleSaveField = async (e) => {
     e.preventDefault();
-    if (editingField) {
-      setCustomFields(prev => prev.map(f => f.id === editingField.id ? { ...formData, id: f.id } : f));
-    } else {
-      setCustomFields(prev => [...prev, { ...formData, id: Date.now().toString() }]);
+    try {
+      if (editingField) {
+        const idToUpdate = editingField.db_id || editingField.id;
+        await api.put(`/custom-fields/${idToUpdate}`, formData);
+      } else {
+        await api.post('/custom-fields', formData);
+      }
+      
+      const response = await api.get('/custom-fields?module=employees');
+      setCustomFields(response.data);
+      setShowModal(false);
+    } catch (err) {
+      console.error('Error saving custom field:', err);
+      alert('Failed to save custom field');
     }
-    setShowModal(false);
   };
 
-  const handleDeleteField = (id) => {
+  const handleDeleteField = async (db_id) => {
     if (window.confirm('Are you sure you want to delete this custom field?')) {
-      setCustomFields(prev => prev.filter(f => f.id !== id));
+      try {
+        await api.delete(`/custom-fields/${db_id}`);
+        const response = await api.get('/custom-fields?module=employees');
+        setCustomFields(response.data);
+      } catch (err) {
+        console.error('Error deleting custom field:', err);
+        alert('Failed to delete custom field');
+      }
     }
   };
 
@@ -169,20 +207,20 @@ const Settings = () => {
                   <tbody className="divide-y divide-slate-100">
                     {customFields.map((field) => (
                       <tr key={field.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4 font-medium text-slate-800 text-sm">{field.moduleName}</td>
-                        <td className="px-6 py-4 font-bold text-slate-900 text-sm">{field.fieldName}</td>
+                        <td className="px-6 py-4 font-medium text-slate-800 text-sm capitalize">{field.module_name}</td>
+                        <td className="px-6 py-4 font-bold text-slate-900 text-sm">{field.field_name}</td>
                         <td className="px-6 py-4">
-                          <Badge variant="default" className="bg-slate-100">{field.fieldType}</Badge>
+                          <Badge variant="default" className="bg-slate-100 uppercase text-[10px]">{field.field_type}</Badge>
                         </td>
                         <td className="px-6 py-4">
-                          <Badge variant={field.isRequired ? 'success' : 'default'}>{field.isRequired ? 'Yes' : 'No'}</Badge>
+                          <Badge variant={field.is_required ? 'success' : 'default'}>{field.is_required ? 'Yes' : 'No'}</Badge>
                         </td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex items-center justify-end space-x-2">
                             <button onClick={() => handleOpenModal(field)} className="p-1.5 text-slate-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors" title="Edit">
                               <Edit size={16} />
                             </button>
-                            <button onClick={() => handleDeleteField(field.id)} className="p-1.5 text-slate-400 hover:text-alert-600 hover:bg-alert-50 rounded-lg transition-colors" title="Delete">
+                            <button onClick={() => handleDeleteField(field.db_id || field.id)} className="p-1.5 text-slate-400 hover:text-alert-600 hover:bg-alert-50 rounded-lg transition-colors" title="Delete">
                               <Trash2 size={16} />
                             </button>
                           </div>
@@ -200,27 +238,30 @@ const Settings = () => {
 
           {activeTab === 'modules' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {modules.map((module) => (
-                <Card key={module.id} className={`transition-all border-l-4 ${module.enabled ? 'border-primary-500 shadow-md' : 'border-slate-200 opacity-60'}`}>
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center space-x-4">
-                      <div className={`p-3 rounded-2xl ${module.enabled ? 'bg-primary-50 text-primary-600' : 'bg-slate-100 text-slate-400'}`}>
-                        {<module.icon size={24} />}
+              {moduleMetadata.map((module) => {
+                const isEnabled = enabledModules[module.id];
+                return (
+                  <Card key={module.id} className={`transition-all border-l-4 ${isEnabled ? 'border-primary-500 shadow-md' : 'border-slate-200 opacity-60'}`}>
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center space-x-4">
+                        <div className={`p-3 rounded-2xl ${isEnabled ? 'bg-primary-50 text-primary-600' : 'bg-slate-100 text-slate-400'}`}>
+                          {<module.icon size={24} />}
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-slate-900">{module.name}</h4>
+                          <p className="text-sm text-slate-500 leading-tight mt-1">{module.description}</p>
+                        </div>
                       </div>
-                      <div>
-                        <h4 className="font-bold text-slate-900">{module.name}</h4>
-                        <p className="text-sm text-slate-500 leading-tight mt-1">{module.description}</p>
-                      </div>
+                      <button 
+                        onClick={() => setEnabledModules(prev => ({ ...prev, [module.id]: !prev[module.id] }))}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${isEnabled ? 'bg-primary-600' : 'bg-slate-300'}`}
+                      >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                      </button>
                     </div>
-                    <button 
-                      onClick={() => setModules(prev => prev.map(m => m.id === module.id ? { ...m, enabled: !m.enabled } : m))}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${module.enabled ? 'bg-primary-600' : 'bg-slate-300'}`}
-                    >
-                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${module.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                    </button>
-                  </div>
-                </Card>
-              ))}
+                  </Card>
+                );
+              })}
             </div>
           )}
 

@@ -9,3 +9,9 @@ build
 .gemini
 tmp
 employees.json
+backend/db.json
+backend/db_query.log
+backend/.env
+# Ignore any other data-specific files
+*.db
+*.sqlite

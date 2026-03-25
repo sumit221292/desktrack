@@ -13,6 +13,21 @@ export const AuthProvider = ({ children }) => {
     return localStorage.getItem('selectedDate') || new Date().toISOString().split('T')[0];
   });
   const [shifts, setShifts] = useState([]);
+  const [enabledModules, setEnabledModules] = useState(() => {
+    const saved = localStorage.getItem('enabledModules');
+    return saved ? JSON.parse(saved) : {
+      employees: true,
+      attendance: true,
+      leaves: true,
+      payroll: true,
+      reports: true,
+      performance: true
+    };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('enabledModules', JSON.stringify(enabledModules));
+  }, [enabledModules]);
 
   useEffect(() => {
     const fetchShifts = async () => {
@@ -58,14 +73,22 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const googleLogin = async (domain) => {
-    // Mock Google login
-    const mockUser = { id: 1, name: 'Google User', email: 'user@' + (domain || 'company') + '.com', role: 'ADMIN' };
-    localStorage.setItem('token', 'google-mock-token-' + Math.random());
-    localStorage.setItem('user', JSON.stringify(mockUser));
-    localStorage.setItem('tenantDomain', domain);
-    setUser(mockUser);
-    return mockUser;
+  const googleLogin = async (credential) => {
+    try {
+      const response = await api.post('/auth/google', { credential });
+      
+      const { token, user: userData, tenantSlug } = response.data;
+      
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userData));
+      localStorage.setItem('tenantSlug', tenantSlug);
+      
+      setUser(userData);
+      return userData;
+    } catch (err) {
+      console.error('Google Login Error:', err);
+      throw err;
+    }
   };
 
   const logout = () => {
@@ -97,7 +120,8 @@ export const AuthProvider = ({ children }) => {
       user, login, googleLogin, logout, loading, 
       isCheckedIn, toggleCheckIn,
       selectedDate, setSelectedDate: handleSetSelectedDate,
-      shifts, setShifts: handleUpdateShifts
+      shifts, setShifts: handleUpdateShifts,
+      enabledModules, setEnabledModules
     }}>
       {children}
     </AuthContext.Provider>

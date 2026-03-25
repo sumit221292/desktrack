@@ -4,24 +4,25 @@ import { useAuth } from '../../context/AuthContext';
 import { 
   LayoutDashboard, Users, Clock, Calendar, 
   CreditCard, FileBarChart, Settings, LogOut,
-  ChevronLeft, ChevronRight 
+  ChevronLeft, ChevronRight, TrendingUp
 } from 'lucide-react';
 import { cn } from '../ui/Button';
 
 const Sidebar = () => {
-  const { logout } = useAuth();
+  const { logout, enabledModules } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
 
   const menuItems = [
     { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
-    { icon: Users, label: 'Employees', path: '/employees' },
-    { icon: Clock, label: 'Attendance', path: '/attendance' },
-    { icon: Calendar, label: 'Leaves', path: '/leaves' },
-    { icon: CreditCard, label: 'Payroll', path: '/payroll' },
-    { icon: FileBarChart, label: 'Reports', path: '/reports' },
+    { icon: Users, label: 'Employees', path: '/employees', module: 'employees' },
+    { icon: Clock, label: 'Attendance', path: '/attendance', module: 'attendance' },
+    { icon: Calendar, label: 'Leaves', path: '/leaves', module: 'leaves' },
+    { icon: CreditCard, label: 'Payroll', path: '/payroll', module: 'payroll' },
+    { icon: TrendingUp, label: 'Performance', path: '/performance', module: 'performance' },
+    { icon: FileBarChart, label: 'Reports', path: '/reports', module: 'reports' },
     { icon: Settings, label: 'Settings', path: '/settings' },
-  ];
+  ].filter(item => !item.module || enabledModules[item.module]);
 
   return (
     <aside className={cn(

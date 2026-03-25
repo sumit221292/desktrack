@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Globe, Mail, Lock, ArrowRight, ShieldCheck } from 'lucide-react';
+import { GoogleLogin } from '@react-oauth/google';
+import { Mail, Lock, ArrowRight, ShieldCheck } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Card } from '../components/ui/Card';
@@ -10,7 +11,6 @@ import { motion } from 'framer-motion';
 const Login = () => {
   const navigate = useNavigate();
   const { login, googleLogin } = useAuth();
-  const [domain, setDomain] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -30,22 +30,24 @@ const Login = () => {
     }
   };
 
-  const handleGoogleLogin = async () => {
-    if (!domain) {
-      setError('Please enter your company domain first');
-      return;
-    }
+  const handleGoogleSuccess = async (credentialResponse) => {
     setIsLoading(true);
     setError('');
     try {
-      // Simulate Google Auth redirect/callback
-      await googleLogin(domain);
+      await googleLogin(credentialResponse.credential);
       navigate('/');
     } catch (err) {
-      setError('Google Sign-In failed');
+      const errorMessage = err?.response?.data?.message 
+        || err?.response?.data?.error 
+        || 'Google Sign-In failed. Please try again.';
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleGoogleError = () => {
+    setError('Google Sign-In was cancelled or failed. Please try again.');
   };
 
   return (
@@ -73,32 +75,35 @@ const Login = () => {
 
         <Card className="bg-slate-900/50 border-slate-800 backdrop-blur-xl shadow-2xl p-8 border-t border-t-white/10">
           {error && (
-            <div className="mb-6 p-3 bg-alert-500/10 border border-alert-500/20 rounded-xl text-alert-500 text-sm font-bold text-center animate-shake">
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 p-3 bg-alert-500/10 border border-alert-500/20 rounded-xl text-alert-500 text-sm font-bold text-center"
+            >
               {error}
-            </div>
+            </motion.div>
           )}
 
           <div className="space-y-5">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 ml-1">Company Domain</label>
-              <Input 
-                icon={Globe}
-                placeholder="yourcompany.desktrack.com"
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-                className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-600 focus:border-primary-500"
-              />
+            {/* Google Sign-In */}
+            <div className="flex flex-col items-center gap-3">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Sign in with your organization account</p>
+              <div className="w-full flex justify-center" style={{ colorScheme: 'normal' }}>
+                <GoogleLogin
+                  onSuccess={handleGoogleSuccess}
+                  onError={handleGoogleError}
+                  theme="filled_blue"
+                  size="large"
+                  width="380"
+                  text="signin_with"
+                  shape="rectangular"
+                  logo_alignment="left"
+                />
+              </div>
+              <p className="text-xs text-slate-600 mt-1">
+                Only authorized domains can access DeskTrack
+              </p>
             </div>
-
-            <Button 
-              onClick={handleGoogleLogin}
-              variant="secondary" 
-              className="w-full h-12 bg-white hover:bg-slate-100 text-slate-900 font-bold gap-3 shadow-lg transition-all"
-              disabled={isLoading}
-            >
-              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/smartlock/google.svg" alt="Google" className="w-5 h-5" />
-              Sign in with Google
-            </Button>
 
             <div className="relative flex items-center py-2">
               <div className="flex-grow border-t border-slate-800"></div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Filter, MoreHorizontal, UserX, AlertCircle, Edit, Trash2, Calendar as CalendarIcon, Clock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Search, Filter, MoreHorizontal, UserX, AlertCircle, Edit, Trash2, Calendar as CalendarIcon, Clock, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -8,34 +9,50 @@ import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { TableSkeleton } from '../components/ui/Skeleton';
 import DynamicForm from '../components/forms/DynamicForm';
+import EmployeeProfile from '../components/employees/EmployeeProfile';
 import api from '../services/api';
 import { motion } from 'framer-motion';
 
 const EmployeeManagement = () => {
+  const navigate = useNavigate();
   const { selectedDate, setSelectedDate } = useAuth();
   const [employees, setEmployees] = useState([]);
   const [fields, setFields] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const fetchEmployees = async () => {
+    try {
+      const empRes = await api.get('/employees');
+      setEmployees(empRes.data);
+    } catch (err) {
+      console.error('Fetch Employees Error:', err);
+    }
+  };
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [empRes, fieldRes] = await Promise.all([
+        api.get('/employees').catch(() => ({ data: [] })),
+        api.get('/custom-fields?module=employees').catch(() => ({ data: [] }))
+      ]);
+      
+      setEmployees(empRes.data);
+      setFields(fieldRes.data || []);
+    } catch (err) {
+      console.error('Fetch Data Error:', err);
+    } finally {
+      setTimeout(() => setLoading(false), 800);
+    }
+  };
+
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [empRes, fieldRes] = await Promise.all([
-          api.get('/employees').catch(() => ({ data: [] })),
-          api.get('/custom-fields?module=employees').catch(() => ({ data: [] }))
-        ]);
-        
-        setEmployees(empRes.data);
-        setFields(fieldRes.data || []);
-      } catch (err) {
-        console.error('Fetch Data Error:', err);
-      } finally {
-        setTimeout(() => setLoading(false), 800); // Artificial delay to show beautiful skeleton
-      }
-    };
     fetchData();
   }, []);
 
@@ -43,12 +60,59 @@ const EmployeeManagement = () => {
     setIsSubmitting(true);
     try {
       await api.post('/employees', values);
-      // Refresh list
-      const empRes = await api.get('/employees');
-      setEmployees(empRes.data);
+      await fetchEmployees();
       setShowAddModal(false);
     } catch (err) {
       console.error('Add Employee Error:', err);
+      alert('Failed to add employee');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleEditClick = (e, emp) => {
+    e.stopPropagation(); // Prevent opening profile
+    setSelectedEmployee(emp);
+    setShowEditModal(true);
+  };
+
+  const handleEditEmployee = async (values) => {
+    if (!selectedEmployee) return;
+    setIsSubmitting(true);
+    try {
+      await api.put(`/employees/${selectedEmployee.id}`, values);
+      await fetchEmployees();
+      setShowEditModal(false);
+      setSelectedEmployee(null);
+    } catch (err) {
+      console.error('Edit Employee Error:', err);
+      alert('Failed to update employee');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteClick = (e, emp) => {
+    e.stopPropagation(); // Prevent opening profile
+    setSelectedEmployee(emp);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleRowClick = (emp) => {
+    navigate(`/employees/${emp.id}`);
+  };
+
+  const handleDeleteEmployee = async () => {
+    if (!selectedEmployee) return;
+    setIsSubmitting(true);
+    try {
+      await api.delete(`/employees/${selectedEmployee.id}`);
+      await fetchEmployees();
+      setShowDeleteConfirm(false);
+      setSelectedEmployee(null);
+    } catch (err) {
+      console.error('Delete Employee Error:', err);
+      alert('Failed to delete employee');
     } finally {
       setIsSubmitting(false);
     }
@@ -62,6 +126,17 @@ const EmployeeManagement = () => {
       default: return <Badge>{status || 'Unknown'}</Badge>;
     }
   };
+
+  const filteredEmployees = employees.filter(emp => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    return (
+      (emp.first_name || '').toLowerCase().includes(term) ||
+      (emp.last_name || '').toLowerCase().includes(term) ||
+      (emp.email || '').toLowerCase().includes(term) ||
+      (emp.employee_code || '').toLowerCase().includes(term)
+    );
+  });
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
@@ -113,7 +188,7 @@ const EmployeeManagement = () => {
         <div className="w-full overflow-x-auto custom-scrollbar">
           {loading ? (
             <TableSkeleton rows={5} columns={5} />
-          ) : employees.length === 0 ? (
+          ) : filteredEmployees.length === 0 ? (
             <div className="p-16 flex flex-col items-center justify-center text-center">
               <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-400">
                 <UserX size={32} />
@@ -135,18 +210,19 @@ const EmployeeManagement = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {employees.map((emp, i) => (
+                {filteredEmployees.map((emp, i) => (
                   <motion.tr 
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.05 }}
                     key={emp.id} 
-                    className="hover:bg-primary-50/30 transition-colors group"
+                    onClick={() => handleRowClick(emp)}
+                    className="hover:bg-primary-50/30 transition-colors group cursor-pointer"
                   >
                     <td className="px-6 py-4 border-l-4 border-transparent group-hover:border-primary-500 transition-colors">
                       <div className="flex items-center space-x-3">
                         <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center font-bold text-sm group-hover:bg-primary-100 group-hover:text-primary-700 transition-colors ring-1 ring-slate-200 group-hover:ring-primary-200">
-                          {emp.first_name[0]}{emp.last_name[0]}
+                          {(emp.first_name || '?')[0]}{(emp.last_name || '?')[0]}
                         </div>
                         <div>
                           <p className="font-bold text-slate-900 text-sm leading-tight">{emp.first_name} {emp.last_name}</p>
@@ -172,10 +248,18 @@ const EmployeeManagement = () => {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button className="p-1.5 text-slate-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors" title="Edit">
+                        <button 
+                          onClick={(e) => handleEditClick(e, emp)}
+                          className="p-1.5 text-slate-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors" 
+                          title="Edit"
+                        >
                           <Edit size={16} />
                         </button>
-                        <button className="p-1.5 text-slate-400 hover:text-alert-600 hover:bg-alert-50 rounded-lg transition-colors" title="Delete">
+                        <button 
+                          onClick={(e) => handleDeleteClick(e, emp)}
+                          className="p-1.5 text-slate-400 hover:text-alert-600 hover:bg-alert-50 rounded-lg transition-colors" 
+                          title="Delete"
+                        >
                           <Trash2 size={16} />
                         </button>
                       </div>
@@ -186,9 +270,9 @@ const EmployeeManagement = () => {
             </table>
           )}
         </div>
-        {!loading && employees.length > 0 && (
+        {!loading && filteredEmployees.length > 0 && (
           <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between text-sm text-slate-600 gap-4">
-            <p className="font-medium">Showing <span className="font-bold text-slate-900">1</span> to <span className="font-bold text-slate-900">{employees.length}</span> of <span className="font-bold text-slate-900">{employees.length}</span> results</p>
+            <p className="font-medium">Showing <span className="font-bold text-slate-900">1</span> to <span className="font-bold text-slate-900">{filteredEmployees.length}</span> of <span className="font-bold text-slate-900">{employees.length}</span> results</p>
             <div className="flex space-x-2">
               <Button variant="secondary" size="sm" disabled>Previous</Button>
               <Button variant="secondary" size="sm">Next</Button>
@@ -197,6 +281,7 @@ const EmployeeManagement = () => {
         )}
       </Card>
 
+      {/* Add Employee Modal */}
       <Modal 
         isOpen={showAddModal} 
         onClose={() => setShowAddModal(false)}
@@ -214,6 +299,52 @@ const EmployeeManagement = () => {
           isLoading={isSubmitting}
           onCancel={() => setShowAddModal(false)}
         />
+      </Modal>
+
+      {/* Edit Employee Modal */}
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => { setShowEditModal(false); setSelectedEmployee(null); }}
+        title="Edit Employee Information"
+      >
+        {selectedEmployee && (
+          <DynamicForm 
+            fields={fields} 
+            initialValues={{
+              ...selectedEmployee,
+              joining_date: selectedEmployee.joining_date ? selectedEmployee.joining_date.split('T')[0] : ''
+            }} 
+            onSubmit={handleEditEmployee} 
+            isLoading={isSubmitting}
+            onCancel={() => { setShowEditModal(false); setSelectedEmployee(null); }}
+          />
+        )}
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteConfirm}
+        onClose={() => { setShowDeleteConfirm(false); setSelectedEmployee(null); }}
+        title="Delete Employee"
+      >
+        {selectedEmployee && (
+          <div className="space-y-6">
+            <div className="flex items-start space-x-3 text-sm text-alert-700 bg-alert-50 p-4 rounded-xl border border-alert-100 leading-relaxed">
+              <AlertCircle size={20} className="text-alert-600 shrink-0 mt-0.5" />
+              <p>Are you sure you want to delete <strong>{selectedEmployee.first_name} {selectedEmployee.last_name}</strong>? This action cannot be undone.</p>
+            </div>
+            <div className="flex items-center justify-end space-x-3">
+              <Button variant="secondary" onClick={() => { setShowDeleteConfirm(false); setSelectedEmployee(null); }}>Cancel</Button>
+              <Button 
+                onClick={handleDeleteEmployee} 
+                disabled={isSubmitting}
+                className="bg-alert-600 hover:bg-alert-700 text-white"
+              >
+                {isSubmitting ? 'Deleting...' : 'Delete Employee'}
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

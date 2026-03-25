@@ -22,6 +22,7 @@ app.use('/api/employees', require('./routes/employees'));
 app.use('/api/attendance', require('./routes/attendance'));
 app.use('/api/shifts', require('./routes/shifts'));
 app.use('/api/custom-fields', require('./routes/customFields'));
+app.use('/api/performance', require('./routes/performanceRoutes'));
 
 // Home route
 app.get('/api', (req, res) => {

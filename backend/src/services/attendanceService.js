@@ -12,6 +12,7 @@ const calculateAttendance = (shift, checkIn, checkOut) => {
   const getShiftDate = (timeString) => {
     if (!timeString) return new Date(checkIn); // Fallback
     const d = new Date(checkIn);
+    if (!timeString || !timeString.includes(':')) return d; 
     const [h, m] = timeString.split(':').map(Number);
     d.setHours(h, m, 0, 0);
     
@@ -252,6 +253,7 @@ const getDailyAttendance = async (companyId, dateStr) => {
       // Re-calculate derived fields for the existing record
       const checkIn = new Date(existing.check_in);
       const checkOut = existing.check_out ? new Date(existing.check_out) : null;
+      if (!shift) return { ...existing, name: emp.name || `${emp.first_name} ${emp.last_name}`, status: existing.status || 'UNKNOWN' };
       const metrics = calculateAttendance(shift, checkIn, checkOut);
       return {
         ...existing,
@@ -265,7 +267,7 @@ const getDailyAttendance = async (companyId, dateStr) => {
 
     // Generate simulated record for demo
     const rand = pseudoRandom(dateSeed + emp.id);
-    if (rand > 0.9) return { id: `dummy-${emp.id}`, employee_id: emp.id, name: emp.name, status: 'ABSENT', check_in: '-', check_out: '-', workHours: '0h 00m' };
+    if (rand > 0.9 || !shift) return { id: `dummy-${emp.id}`, employee_id: emp.id, name: emp.name || `${emp.first_name} ${emp.last_name}`, status: 'ABSENT', check_in: '-', check_out: '-', workHours: '0h 00m' };
 
     // Simulate timings
     let offset = 0;

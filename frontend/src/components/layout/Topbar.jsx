@@ -25,11 +25,15 @@ const Topbar = () => {
         <div className="h-8 w-px bg-slate-200"></div>
 
         <div className="flex items-center space-x-3 cursor-pointer group">
-          <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-bold border-2 border-white shadow-sm group-hover:shadow-md transition-all">
-            {user?.email?.[0]?.toUpperCase() || 'A'}
-          </div>
+          {user?.picture ? (
+            <img src={user.picture} alt={user.name || user.email} className="w-10 h-10 rounded-full border-2 border-white shadow-sm group-hover:shadow-md transition-all object-cover" referrerPolicy="no-referrer" />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-bold border-2 border-white shadow-sm group-hover:shadow-md transition-all">
+              {(user?.name || user?.email)?.[0]?.toUpperCase() || 'A'}
+            </div>
+          )}
           <div className="hidden md:block">
-            <p className="text-sm font-bold text-slate-700 leading-tight group-hover:text-primary-700 transition-colors">{user?.email || 'Admin User'}</p>
+            <p className="text-sm font-bold text-slate-700 leading-tight group-hover:text-primary-700 transition-colors">{user?.name || user?.email || 'Admin User'}</p>
             <p className="text-xs text-slate-500 font-medium">{user?.role || 'HR Admin'}</p>
           </div>
           <ChevronDown size={16} className="text-slate-400 group-hover:text-primary-600 transition-colors" />

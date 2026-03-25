@@ -4,9 +4,11 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import DashboardLayout from './components/layout/DashboardLayout';
 import Dashboard from './pages/Dashboard';
 import EmployeeManagement from './pages/EmployeeManagement';
+import EmployeeProfilePage from './pages/EmployeeProfilePage';
 import Attendance from './pages/Attendance';
 import Leaves from './pages/Leaves';
 import Payroll from './pages/Payroll';
+import Performance from './pages/Performance';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
@@ -37,9 +39,11 @@ function App() {
           >
             <Route index element={<Dashboard />} />
             <Route path="employees" element={<EmployeeManagement />} />
+            <Route path="employees/:id" element={<EmployeeProfilePage />} />
             <Route path="attendance" element={<Attendance />} />
             <Route path="leaves" element={<Leaves />} />
             <Route path="payroll" element={<Payroll />} />
+            <Route path="performance" element={<Performance />} />
             <Route path="reports" element={<Reports />} />
             <Route path="settings" element={<Settings />} />
           </Route>

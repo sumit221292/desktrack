@@ -9,6 +9,13 @@ const { query } = require('../config/db');
  */
 const tenantMiddleware = async (req, res, next) => {
   try {
+    // Skip tenant check for Google auth (tenant is resolved from email domain)
+    if (req.path === '/api/auth/google' || req.path === '/auth/google') {
+      req.tenant = { id: null, name: 'Pending', slug: 'pending', is_active: true };
+      req.tenantId = null;
+      return next();
+    }
+
     const slug = req.headers['x-tenant-slug'] || req.headers['x-tenant-id'];
     
     // Fallback: Check subdomain if host is available

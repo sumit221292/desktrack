@@ -1,6 +1,9 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 const { query } = require('../config/db');
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const login = async (req, res) => {
   const { email, password } = req.body;
@@ -49,6 +52,134 @@ const login = async (req, res) => {
   }
 };
 
+const googleLogin = async (req, res) => {
+  const { credential } = req.body;
+
+  if (!credential) {
+    return res.status(400).json({ error: 'Google credential is required.' });
+  }
+
+  try {
+    // 1. Verify the Google ID token
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    const { email, name, picture, sub: googleId } = payload;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Unable to retrieve email from Google account.' });
+    }
+
+    // 2. Extract domain from email
+    const emailDomain = email.split('@')[1];
+
+    // 3. Check if the domain is in the allowed_domains list
+    const domainResult = await query(
+      'SELECT * FROM allowed_domains WHERE domain = $1',
+      [emailDomain]
+    );
+
+    if (domainResult.rows.length === 0) {
+      return res.status(403).json({ 
+        error: 'Domain not authorized',
+        message: `The domain "${emailDomain}" is not authorized to access DeskTrack. Please contact your administrator.`
+      });
+    }
+
+    const allowedDomain = domainResult.rows[0];
+    const companyId = allowedDomain.company_id;
+
+    // 4. Find or create the user
+    let userResult = await query(
+      'SELECT * FROM users WHERE email = $1 AND company_id = $2',
+      [email, companyId]
+    );
+
+    let user;
+    if (userResult.rows.length === 0) {
+      // Check if this is the first user for this company
+      const allUsersResult = await query(
+        'SELECT id FROM users WHERE company_id = $1',
+        [companyId]
+      );
+      const isFirstUser = allUsersResult.rows.length === 0;
+      const initialRole = isFirstUser ? 'SUPER_ADMIN' : 'EMPLOYEE';
+
+      // Auto-create user on first Google login
+      const insertResult = await query(
+        'INSERT INTO users (email, password_hash, role, company_id) VALUES ($1, $2, $3, $4) RETURNING id',
+        [email, 'GOOGLE_AUTH_' + googleId, initialRole, companyId]
+      );
+
+      const userId = insertResult.rows[0].id;
+
+      // Split name into first and last
+      const nameParts = (name || email.split('@')[0]).split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      const employeeCode = 'EMP-' + String(userId).padStart(3, '0');
+
+      // Also create an employee record so they appear in the employee list
+      // Consistent with employeeController: company_id, first_name, last_name, employee_code, designation_id, department_id, salary_info, joining_date, email, shift_id, role, status
+      await query(
+        `INSERT INTO employees (company_id, first_name, last_name, employee_code, designation_id, department_id, salary_info, joining_date, email, shift_id, role, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [companyId, firstName, lastName, employeeCode, 1, 1, '{}', new Date().toISOString().split('T')[0], email, 1, initialRole, 'ACTIVE']
+      );
+
+      user = {
+        id: userId,
+        email,
+        role: initialRole,
+        company_id: companyId,
+        name: name || email.split('@')[0],
+        picture
+      };
+    } else {
+      user = userResult.rows[0];
+      user.name = name || user.email.split('@')[0];
+      user.picture = picture;
+    }
+
+    // 5. Generate JWT
+    const token = jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        companyId: companyId
+      },
+      process.env.JWT_SECRET || 'desktrack_secret',
+      { expiresIn: '24h' }
+    );
+
+    // 6. Derive tenant slug from domain
+    const tenantSlug = emailDomain.split('.')[0];
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        picture: user.picture,
+        role: user.role,
+        tenantId: companyId
+      },
+      tenantSlug
+    });
+  } catch (err) {
+    console.error('Google Login Error:', err);
+    if (err.message && err.message.includes('Token used too late')) {
+      return res.status(401).json({ error: 'Google token has expired. Please try again.' });
+    }
+    res.status(500).json({ error: 'Server error during Google login.' });
+  }
+};
+
 const register = async (req, res) => {
   const { email, password, role } = req.body;
   const tenantId = req.tenantId;
@@ -67,4 +198,5 @@ const register = async (req, res) => {
   }
 };
 
-module.exports = { login, register };
+module.exports = { login, googleLogin, register };
+
