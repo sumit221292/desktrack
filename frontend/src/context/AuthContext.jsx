@@ -29,6 +29,7 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem('enabledModules', JSON.stringify(enabledModules));
   }, [enabledModules]);
 
+  // Fetch shifts only for authenticated users
   useEffect(() => {
     const fetchShifts = async () => {
       try {
@@ -38,8 +39,11 @@ export const AuthProvider = ({ children }) => {
         console.error('Initial Shifts Load Error:', err);
       }
     };
-    fetchShifts();
-  }, []);
+
+    if (user && !loading) {
+      fetchShifts();
+    }
+  }, [user, loading]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -97,6 +101,7 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('isCheckedIn');
     localStorage.removeItem('tenantSlug');
     setUser(null);
+    setShifts([]);
     setIsCheckedIn(false);
   };
 
