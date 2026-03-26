@@ -70,10 +70,10 @@ const Attendance = () => {
       const data = response.data;
       const mapped = data.map(r => ({
         ...r,
-        checkIn: r.check_in && r.check_in !== '-' ? (r.check_in.includes('T') ? formatTime(r.check_in.split('T')[1].substring(0, 5)) : r.check_in) : '-',
-        checkOut: r.check_out && r.check_out !== '-' ? (r.check_out.includes('T') ? formatTime(r.check_out.split('T')[1].substring(0, 5)) : r.check_out) : '-',
+        checkIn: r.check_in && r.check_in !== '-' ? new Date(r.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : '-',
+        checkOut: r.check_out && r.check_out !== '-' ? new Date(r.check_out).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : '-',
         displayName: r.name,
-        displayStatus: r.status.replace('_', ' ')
+        displayStatus: (r.status || '').replace('_', ' ')
       }));
       setRecords(mapped);
     } catch (err) {

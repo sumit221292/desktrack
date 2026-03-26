@@ -43,10 +43,10 @@ const Dashboard = () => {
           .filter(a => a.status !== 'Absent' && a.check_in)
           .map(a => ({
             name: a.name,
-            time: a.check_in.includes('T') ? a.check_in.split('T')[1].substring(0, 5) : a.check_in,
-            status: a.status.replace('_', ' '),
+            time: new Date(a.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }),
+            status: (a.status || '').replace('_', ' '),
             role: 'Employee',
-            variant: a.status === 'Present' ? 'success' : 'warning'
+            variant: (a.status || '') === 'Present' ? 'success' : 'warning'
           })) : [];
         
         setRecentActivity(active.slice(0, 5));
