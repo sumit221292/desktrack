@@ -477,7 +477,101 @@ const db = {
   pool,
 };
 
-// Persistence Logic
+// Persistence and Migration Logic
+async function runMigrations() {
+  if (pool) {
+    try {
+      console.log('Running Production Migrations...');
+      // 1. Basic Tables
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS companies (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          slug VARCHAR(255) NOT NULL UNIQUE,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS allowed_domains (
+          id SERIAL PRIMARY KEY,
+          domain VARCHAR(255) NOT NULL UNIQUE,
+          company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS shifts (
+          id SERIAL PRIMARY KEY,
+          company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+          name VARCHAR(255) NOT NULL,
+          shift_start_time TIME NOT NULL,
+          shift_end_time TIME NOT NULL,
+          total_working_hours DECIMAL(4,2),
+          grace_minutes INTEGER DEFAULT 15,
+          late_start_time TIME,
+          late_end_time TIME,
+          overlate_start_time TIME,
+          halfday_start_time TIME,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS users (
+          id SERIAL PRIMARY KEY,
+          email VARCHAR(255) NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          role VARCHAR(50) NOT NULL,
+          company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS employees (
+          id SERIAL PRIMARY KEY,
+          company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+          first_name VARCHAR(100) NOT NULL,
+          last_name VARCHAR(100),
+          email VARCHAR(255),
+          employee_code VARCHAR(100) NOT NULL,
+          designation_id INTEGER,
+          department_id INTEGER,
+          salary_info JSONB DEFAULT '{}',
+          joining_date DATE,
+          shift_id INTEGER REFERENCES shifts(id),
+          role VARCHAR(50) DEFAULT 'EMPLOYEE',
+          status VARCHAR(20) DEFAULT 'ACTIVE',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS attendance (
+          id SERIAL PRIMARY KEY,
+          company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+          employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+          check_in TIMESTAMP NOT NULL,
+          check_out TIMESTAMP,
+          working_hours DECIMAL(4,2),
+          overtime_hours DECIMAL(4,2),
+          status VARCHAR(50),
+          remarks TEXT,
+          location_metadata JSONB,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      
+      // 2. Auto-seed Demo Data for SaaS core
+      const companyCount = await pool.query('SELECT COUNT(*) FROM companies');
+      if (parseInt(companyCount.rows[0].count) === 0) {
+        await pool.query("INSERT INTO companies (id, name, slug) VALUES (1, 'Creative Frenzy', 'creativefrenzy') ON CONFLICT DO NOTHING");
+        await pool.query("INSERT INTO allowed_domains (domain, company_id) VALUES ('creativefrenzy.in', 1) ON CONFLICT DO NOTHING");
+        console.log('Seeded initial company and domain data.');
+      }
+      
+      console.log('Production Migrations Complete.');
+    } catch (err) {
+      console.error('Migration Error:', err);
+    }
+  }
+}
+
+runMigrations();
+
 function saveToDisk() {
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(memoryDB, null, 2));
