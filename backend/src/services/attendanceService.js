@@ -237,68 +237,48 @@ const updateAttendance = async (attendanceId, companyId, updates) => {
  */
 const getDailyAttendance = async (companyId, dateStr) => {
   const employees = await query('SELECT * FROM employees WHERE company_id = $1', [companyId]);
-  const attendance = await query('SELECT * FROM attendance WHERE company_id = $1', [companyId]);
+  
+  // Get attendance for the specific date
+  // PostgreSQL handles DATE comparison correctly with $2
+  const attendance = await query(
+    `SELECT * FROM attendance 
+     WHERE company_id = $1 AND check_in::date = $2::date`, 
+    [companyId, dateStr]
+  );
+  
   const shifts = await query('SELECT * FROM shifts WHERE company_id = $1', [companyId]);
   const shift = shifts.rows[0];
-
-  const dateSeed = dateStr.split('-').reduce((acc, val) => acc + parseInt(val), 0);
-  const pseudoRandom = (seed) => {
-    const x = Math.sin(seed) * 10000;
-    return x - Math.floor(x);
-  };
 
   const records = employees.rows.map((emp) => {
     const existing = attendance.rows.find(a => a.employee_id === emp.id);
     if (existing) {
-      // Re-calculate derived fields for the existing record
       const checkIn = new Date(existing.check_in);
       const checkOut = existing.check_out ? new Date(existing.check_out) : null;
-      if (!shift) return { ...existing, name: emp.name || `${emp.first_name} ${emp.last_name}`, status: existing.status || 'UNKNOWN' };
-      const metrics = calculateAttendance(shift, checkIn, checkOut);
+      
+      let metrics = { status: existing.status || 'PRESENT', workingHours: existing.working_hours || 0 };
+      if (shift) {
+        metrics = calculateAttendance(shift, checkIn, checkOut);
+      }
+      
       return {
         ...existing,
-        name: emp.name || `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown',
+        name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown',
         role: emp.role,
         ...metrics,
-        expectedCheckout: metrics.expectedCheckoutTime, // for frontend compatibility
+        expectedCheckout: metrics.expectedCheckoutTime,
         workHours: metrics.workingHours > 0 ? `${Math.floor(metrics.workingHours)}h ${Math.floor((metrics.workingHours % 1) * 60)}m` : (existing.check_out ? '0h 00m' : 'In Progress')
       };
     }
 
-    // Generate simulated record for demo
-    const rand = pseudoRandom(dateSeed + emp.id);
-    if (rand > 0.9 || !shift) return { id: `dummy-${emp.id}`, employee_id: emp.id, name: emp.name || `${emp.first_name} ${emp.last_name}`, status: 'ABSENT', check_in: '-', check_out: '-', workHours: '0h 00m' };
-
-    // Simulate timings
-    let offset = 0;
-    let status = 'PRESENT';
-    if (rand < 0.3) {
-      offset = Math.floor(rand * shift.grace_minutes);
-    } else if (rand < 0.6) {
-      offset = 20 + Math.floor(rand * 20);
-      status = 'LATE';
-    } else {
-      offset = 65 + Math.floor(rand * 30);
-      status = 'OVER_LATE';
-    }
-
-    const checkIn = new Date(dateStr);
-    const [sh, sm] = shift.shift_start_time.split(':').map(Number);
-    checkIn.setHours(sh, sm + offset, 0, 0);
-
-    const checkOut = new Date(checkIn.getTime() + (shift.total_working_hours * 60 * 60 * 1000) + (Math.random() * 30 * 60000));
-    const metrics = calculateAttendance(shift, checkIn, checkOut);
-
-    return {
-      id: `dummy-${emp.id}`,
-      employee_id: emp.id,
-        name: emp.name || `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown',
-        role: emp.role,
-      check_in: checkIn.toISOString(),
-      check_out: checkOut.toISOString(),
-      status: metrics.status,
-      ...metrics,
-      workHours: `${Math.floor(metrics.workingHours)}h ${Math.floor((metrics.workingHours % 1) * 60)}m`
+    // No record found: Return a clean "Absent/Not Checked In" state without simulation
+    return { 
+      id: `no-ref-${emp.id}`, 
+      employee_id: emp.id, 
+      name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown', 
+      status: 'ABSENT', 
+      check_in: '-', 
+      check_out: '-', 
+      workHours: '0h 00m' 
     };
   });
 
@@ -306,33 +286,13 @@ const getDailyAttendance = async (companyId, dateStr) => {
 };
 
 const getStats = async (companyId, dateStr) => {
-  // Use getDailyAttendance to ensure stats match the simulated/real data shown in tables
   const attendanceRecords = await getDailyAttendance(companyId, dateStr);
   
-  // DEBUG DUMP
-  try {
-    const fs = require('fs');
-    fs.writeFileSync('C:/Users/creat/Downloads/DeskTrack/backend/stats_debug.json', JSON.stringify({ dateStr, companyId, attendanceRecords }, null, 2));
-  } catch (e) {}
-
   const totalEmployees = attendanceRecords.length;
+  const presentRecords = attendanceRecords.filter(a => !String(a.id).startsWith('no-ref-') && a.check_in !== '-');
+  const presentCount = presentRecords.length;
   
-  // Count as present if they have ANY check-in time (even if status is weird)
-  const presentCount = attendanceRecords.filter(a => {
-    const checkIn = a.check_in || '';
-    const status = (a.status || '').toUpperCase().replace(/_/g, ' ');
-    
-    // Non-present markers
-    if (status.includes('ABSENT') || status.includes('LEAVE')) return false;
-    
-    // If check_in is '-', they are likely absent in the simulation
-    if (checkIn === '-' || !checkIn) return false;
-    
-    return true; 
-  }).length;
-
-  // Count as late if status indicates lateness (LATE or OVER LATE)
-  const lateCount = attendanceRecords.filter(a => {
+  const lateCount = presentRecords.filter(a => {
     const status = (a.status || '').toUpperCase().replace(/_/g, ' ');
     return status.includes('LATE');
   }).length;
