@@ -96,16 +96,13 @@ const calculateAttendance = (shift, checkIn, checkOut) => {
  */
 const checkIn = async (userIdOrEmployeeId, companyId, location, manualCheckInTime) => {
   // 1. Resolve actual Employee ID if a User ID was provided
-  // In our system, req.user.id is often passed, which is the users.id
   let employeeId = userIdOrEmployeeId;
-  
   const userResult = await query('SELECT email FROM users WHERE id = $1', [userIdOrEmployeeId]);
   if (userResult.rows.length > 0) {
     const userEmail = userResult.rows[0].email;
     const empResult = await query('SELECT id FROM employees WHERE email = $1 AND company_id = $2', [userEmail, companyId]);
     if (empResult.rows.length > 0) {
       employeeId = empResult.rows[0].id;
-      console.log(`[CheckIn] Resolved userId ${userIdOrEmployeeId} to employeeId ${employeeId} for ${userEmail}`);
     }
   }
 
@@ -120,31 +117,57 @@ const checkIn = async (userIdOrEmployeeId, companyId, location, manualCheckInTim
   );
 
   const shift = shiftResult.rows[0];
-  if (!shift) {
-    console.error(`[CheckIn Error] No shift found for employeeId: ${employeeId}, companyId: ${companyId}`);
-    // Diagnostic check: Does the employee even exist?
-    const empCheck = await query('SELECT id, first_name, email FROM employees WHERE id = $1', [employeeId]);
-    if (empCheck.rows.length === 0) {
-      throw new Error(`Employee record not found for ID ${employeeId}.`);
-    }
-    throw new Error(`No assigned shift found for employee ${empCheck.rows[0].first_name} (${empCheck.rows[0].id}). Please ensure a shift is assigned in the Employee matching your login email.`);
-  }
+  if (!shift) throw new Error('No assigned shift found.');
 
   const checkInTime = manualCheckInTime ? new Date(manualCheckInTime) : new Date();
-  const { status, expectedCheckoutTime, lateMinutes } = calculateAttendance(shift, checkInTime, null);
+  const dateStr = checkInTime.toISOString().split('T')[0];
 
-  const result = await query(
-    `INSERT INTO attendance (company_id, employee_id, check_in, status, location_metadata)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [companyId, employeeId, checkInTime, status, JSON.stringify(location || {})]
+  // 3. Check for existing daily attendance record
+  const existingAtt = await query(
+    'SELECT * FROM attendance WHERE employee_id = $1 AND company_id = $2 AND check_in::date = $3::date',
+    [employeeId, companyId, dateStr]
   );
 
+  let attendanceId;
+  let statusRecord;
+
+  if (existingAtt.rows.length > 0) {
+    attendanceId = existingAtt.rows[0].id;
+    statusRecord = existingAtt.rows[0];
+    
+    // Check if there's already an open session
+    const openSession = await query(
+      'SELECT id FROM attendance_sessions WHERE attendance_id = $1 AND check_out IS NULL',
+      [attendanceId]
+    );
+    if (openSession.rows.length > 0) {
+      throw new Error('You are already checked in. Please check out first.');
+    }
+  } else {
+    // First check-in of the day
+    const { status } = calculateAttendance(shift, checkInTime, null);
+    const result = await query(
+      `INSERT INTO attendance (company_id, employee_id, check_in, status, location_metadata)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [companyId, employeeId, checkInTime, status, JSON.stringify(location || {})]
+    );
+    attendanceId = result.rows[0].id;
+    statusRecord = result.rows[0];
+  }
+
+  // 4. Create new activity session
+  await query(
+    `INSERT INTO attendance_sessions (attendance_id, company_id, employee_id, check_in)
+     VALUES ($1, $2, $3, $4)`,
+    [attendanceId, companyId, employeeId, checkInTime]
+  );
+
+  const { expectedCheckoutTime, lateMinutes } = calculateAttendance(shift, new Date(statusRecord.check_in), null);
+
   return {
-    ...result.rows[0],
+    ...statusRecord,
     expected_checkout_time: expectedCheckoutTime,
-    late_minutes: lateMinutes,
-    late_count: status === 'LATE' ? 1 : 0,
-    overlate_count: status === 'OVER_LATE' ? 1 : 0
+    late_minutes: lateMinutes
   };
 };
 
@@ -154,8 +177,9 @@ const checkIn = async (userIdOrEmployeeId, companyId, location, manualCheckInTim
 const checkOut = async (attendanceId, companyId, manualCheckOutTime) => {
   const checkOutTime = manualCheckOutTime ? new Date(manualCheckOutTime) : new Date();
   
+  // 1. Fetch record and shift
   const attResult = await query(
-    'SELECT a.*, s.shift_start_time, s.shift_end_time, s.total_working_hours, s.grace_minutes, s.late_start_time, s.late_end_time, s.overlate_start_time, s.halfday_start_time FROM attendance a JOIN employee_shifts es ON a.employee_id = es.employee_id JOIN shifts s ON es.shift_id = s.id WHERE a.id = $1 AND a.company_id = $2',
+    'SELECT a.*, s.shift_start_time, s.shift_end_time, s.total_working_hours, s.grace_minutes, s.late_start_time, s.late_end_time, s.overlate_start_time, s.halfday_start_time FROM attendance a JOIN employees e ON a.employee_id = e.id JOIN employee_shifts es ON e.id = es.employee_id JOIN shifts s ON es.shift_id = s.id WHERE a.id = $1 AND a.company_id = $2',
     [attendanceId, companyId]
   );
 
@@ -173,27 +197,58 @@ const checkOut = async (attendanceId, companyId, manualCheckOutTime) => {
     halfday_start_time: record.halfday_start_time
   };
 
-  const { workingHours, overtimeHours, status, lateMinutes, shortfallMinutes, breakTime, activeTime, idleTime, expectedCheckoutTime } = calculateAttendance(shift, new Date(record.check_in), checkOutTime);
+  // 2. Find and close the active session
+  const openSession = await query(
+    'SELECT * FROM attendance_sessions WHERE attendance_id = $1 AND check_out IS NULL ORDER BY check_in DESC LIMIT 1',
+    [attendanceId]
+  );
+  if (openSession.rows.length === 0) {
+    throw new Error('No active check-in session found.');
+  }
+
+  const session = openSession.rows[0];
+  const durationMinutes = Math.floor((checkOutTime - new Date(session.check_in)) / 60000);
+
+  await query(
+    'UPDATE attendance_sessions SET check_out = $1, duration_minutes = $2 WHERE id = $3',
+    [checkOutTime, durationMinutes, session.id]
+  );
+
+  // 3. Calculate total working hours from all sessions
+  const totals = await query(
+    'SELECT SUM(duration_minutes) as total_mins FROM attendance_sessions WHERE attendance_id = $1',
+    [attendanceId]
+  );
+  const totalMins = parseInt(totals.rows[0].total_mins) || 0;
+  const workingHours = parseFloat((totalMins / 60).toFixed(2));
+
+  // 4. Calculate status based on First-In and Cumulative hours
+  const { status, overtimeHours, lateMinutes, shortfallMinutes, breakTime, activeTime, idleTime, expectedCheckoutTime } = calculateAttendance(shift, new Date(record.check_in), checkOutTime);
+  
+  // Use sequential working hours status override if needed
+  let finalStatus = status;
+  const minWorkingHoursForFullDay = (shift.total_working_hours || 9) / 2;
+  if (workingHours > 0 && workingHours < minWorkingHoursForFullDay) {
+    finalStatus = 'HALF_DAY';
+  }
 
   const result = await query(
     `UPDATE attendance 
      SET check_out = $1, working_hours = $2, overtime_hours = $3, status = $4
      WHERE id = $5 AND company_id = $6 RETURNING *`,
-    [checkOutTime, workingHours, overtimeHours, status, attendanceId, companyId]
+    [checkOutTime, workingHours, overtimeHours, finalStatus, attendanceId, companyId]
   );
 
   return {
     ...result.rows[0],
     working_hours: workingHours,
-    final_status: status,
+    final_status: finalStatus,
     expected_checkout_time: expectedCheckoutTime,
     late_minutes: lateMinutes,
     shortfall_minutes: shortfallMinutes,
     break_time: breakTime,
     active_time: activeTime,
-    idle_time: idleTime,
-    late_count: status === 'LATE' ? 1 : 0,
-    overlate_count: status === 'OVER_LATE' ? 1 : 0
+    idle_time: idleTime
   };
 };
 
@@ -266,10 +321,16 @@ const getDailyAttendance = async (companyId, dateStr) => {
   const employees = await query('SELECT * FROM employees WHERE company_id = $1', [companyId]);
   
   // Get attendance for the specific date
-  // PostgreSQL handles DATE comparison correctly with $2
   const attendance = await query(
     `SELECT * FROM attendance 
      WHERE company_id = $1 AND check_in::date = $2::date`, 
+    [companyId, dateStr]
+  );
+  
+  // Get all sessions for the day
+  const sessions = await query(
+    `SELECT * FROM attendance_sessions 
+     WHERE company_id = $1 AND check_in::date = $2::date`,
     [companyId, dateStr]
   );
   
@@ -278,6 +339,9 @@ const getDailyAttendance = async (companyId, dateStr) => {
 
   const records = employees.rows.map((emp) => {
     const existing = attendance.rows.find(a => a.employee_id === emp.id);
+    const empSessions = sessions.rows.filter(s => s.employee_id === emp.id);
+    const isCheckedIn = empSessions.some(s => s.check_out === null);
+
     if (existing) {
       const checkIn = new Date(existing.check_in);
       const checkOut = existing.check_out ? new Date(existing.check_out) : null;
@@ -291,11 +355,12 @@ const getDailyAttendance = async (companyId, dateStr) => {
         ...existing,
         employee_id: emp.id,
         email: emp.email,
+        is_checked_in: isCheckedIn,
         name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown',
         role: emp.role,
         ...metrics,
         expectedCheckout: metrics.expectedCheckoutTime,
-        workHours: metrics.workingHours > 0 ? `${Math.floor(metrics.workingHours)}h ${Math.floor((metrics.workingHours % 1) * 60)}m` : (existing.check_out ? '0h 00m' : 'In Progress')
+        workHours: metrics.workingHours > 0 ? `${Math.floor(metrics.workingHours)}h ${Math.floor((metrics.workingHours % 1) * 60)}m` : (isCheckedIn ? 'In Progress' : '0h 00m')
       };
     }
 
@@ -304,6 +369,7 @@ const getDailyAttendance = async (companyId, dateStr) => {
       id: `no-ref-${emp.id}`, 
       employee_id: emp.id, 
       email: emp.email,
+      is_checked_in: false,
       name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown', 
       status: 'ABSENT', 
       check_in: '-', 

@@ -585,6 +585,17 @@ async function runMigrations() {
           location_metadata JSONB,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS attendance_sessions (
+          id SERIAL PRIMARY KEY,
+          attendance_id INTEGER NOT NULL REFERENCES attendance(id) ON DELETE CASCADE,
+          company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+          employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+          check_in TIMESTAMP NOT NULL,
+          check_out TIMESTAMP,
+          duration_minutes INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
       `);
       
       const companyCount = await pool.query('SELECT COUNT(*) FROM companies');

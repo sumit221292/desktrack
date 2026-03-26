@@ -44,7 +44,7 @@ export const AuthProvider = ({ children }) => {
         const response = await api.get(`/attendance?date=${today}`);
         const myRecord = response.data.find(r => r.email === user.email || r.employee_id === user.id);
         
-        if (myRecord && myRecord.check_in && !myRecord.check_out && !String(myRecord.id).startsWith('dummy-')) {
+        if (myRecord && myRecord.is_checked_in && !String(myRecord.id).startsWith('dummy-')) {
           setIsCheckedIn(true);
           setAttendanceId(myRecord.id);
           localStorage.setItem('isCheckedIn', 'true');
