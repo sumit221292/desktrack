@@ -285,6 +285,8 @@ const getDailyAttendance = async (companyId, dateStr) => {
       
       return {
         ...existing,
+        employee_id: emp.id,
+        email: emp.email,
         name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown',
         role: emp.role,
         ...metrics,
@@ -297,6 +299,7 @@ const getDailyAttendance = async (companyId, dateStr) => {
     return { 
       id: `no-ref-${emp.id}`, 
       employee_id: emp.id, 
+      email: emp.email,
       name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown', 
       status: 'ABSENT', 
       check_in: '-', 
