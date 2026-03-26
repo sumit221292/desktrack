@@ -22,6 +22,7 @@ router.get('/', async (req, res) => {
       database: {
         type: dbType,
         connected: !!pool,
+        host: pool?.options?.host || 'N/A',
         authorizedDomains: domains
       },
       config: {
