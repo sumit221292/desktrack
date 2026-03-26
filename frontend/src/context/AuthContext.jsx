@@ -14,6 +14,9 @@ export const AuthProvider = ({ children }) => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   });
+  const [attendanceId, setAttendanceId] = useState(() => {
+    return localStorage.getItem('attendanceId');
+  });
   const [shifts, setShifts] = useState([]);
   const [enabledModules, setEnabledModules] = useState(() => {
     const saved = localStorage.getItem('enabledModules');
@@ -30,6 +33,37 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     localStorage.setItem('enabledModules', JSON.stringify(enabledModules));
   }, [enabledModules]);
+
+  // Sync attendance status from backend on load or user change
+  useEffect(() => {
+    const syncAttendanceStatus = async () => {
+      if (!user) return;
+      try {
+        const d = new Date();
+        const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const response = await api.get(`/attendance?date=${today}`);
+        const myRecord = response.data.find(r => r.email === user.email || r.employee_id === user.id);
+        
+        if (myRecord && myRecord.check_in && !myRecord.check_out && !String(myRecord.id).startsWith('dummy-')) {
+          setIsCheckedIn(true);
+          setAttendanceId(myRecord.id);
+          localStorage.setItem('isCheckedIn', 'true');
+          localStorage.setItem('attendanceId', myRecord.id);
+        } else {
+          setIsCheckedIn(false);
+          setAttendanceId(null);
+          localStorage.removeItem('isCheckedIn');
+          localStorage.removeItem('attendanceId');
+        }
+      } catch (err) {
+        console.error('Failed to sync attendance status:', err);
+      }
+    };
+
+    if (user && !loading) {
+      syncAttendanceStatus();
+    }
+  }, [user, loading, selectedDate]);
 
   // Fetch shifts only for authenticated users
   useEffect(() => {
@@ -108,16 +142,50 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem('isCheckedIn');
+    localStorage.removeItem('attendanceId');
     localStorage.removeItem('tenantSlug');
     setUser(null);
     setShifts([]);
     setIsCheckedIn(false);
+    setAttendanceId(null);
   };
 
-  const toggleCheckIn = () => {
-    const newState = !isCheckedIn;
-    setIsCheckedIn(newState);
-    localStorage.setItem('isCheckedIn', newState);
+  const toggleCheckIn = async () => {
+    try {
+      if (!isCheckedIn) {
+        // Checking In
+        const response = await api.post('/attendance/check-in', {
+          location: { type: 'web', browser: navigator.userAgent }
+        });
+        const record = response.data;
+        setIsCheckedIn(true);
+        setAttendanceId(record.id);
+        localStorage.setItem('isCheckedIn', 'true');
+        localStorage.setItem('attendanceId', record.id);
+      } else {
+        // Checking Out
+        if (!attendanceId) {
+          // Fallback: try to find the record first if ID is missing from local state
+          const d = new Date();
+          const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          const statusRes = await api.get(`/attendance?date=${today}`);
+          const myRecord = statusRes.data.find(r => r.email === user.email && !r.check_out && !String(r.id).startsWith('dummy-'));
+          if (myRecord) {
+            await api.post(`/attendance/check-out/${myRecord.id}`);
+          }
+        } else {
+          await api.post(`/attendance/check-out/${attendanceId}`);
+        }
+        
+        setIsCheckedIn(false);
+        setAttendanceId(null);
+        localStorage.removeItem('isCheckedIn');
+        localStorage.removeItem('attendanceId');
+      }
+    } catch (err) {
+      console.error('Attendance Action Error:', err);
+      alert(err.response?.data?.error || 'Failed to process attendance action');
+    }
   };
 
   const handleSetSelectedDate = (date) => {

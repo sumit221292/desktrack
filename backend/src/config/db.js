@@ -553,6 +553,16 @@ async function runMigrations() {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS employee_shifts (
+          id SERIAL PRIMARY KEY,
+          employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+          shift_id INTEGER NOT NULL REFERENCES shifts(id) ON DELETE CASCADE,
+          company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+          effective_from DATE NOT NULL DEFAULT CURRENT_DATE,
+          effective_to DATE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS attendance (
           id SERIAL PRIMARY KEY,
           company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -591,7 +601,14 @@ async function runMigrations() {
         await pool.query("INSERT INTO designations (id, name, company_id) VALUES (3, 'Developer', 1) ON CONFLICT DO NOTHING");
       }
 
-      // Repair: Create employee records for any users that don't have one
+      // Seed initial Shift if it doesn't exist
+      const shiftCount = await pool.query('SELECT COUNT(*) FROM shifts');
+      if (parseInt(shiftCount.rows[0].count) === 0) {
+        await pool.query(`INSERT INTO shifts (id, company_id, name, shift_start_time, shift_end_time, total_working_hours, grace_minutes, late_start_time, late_end_time, overlate_start_time, halfday_start_time) 
+          VALUES (1, 1, 'General Shift', '10:00:00', '19:00:00', 9.0, 15, '10:16:00', '10:59:00', '11:00:00', '12:30:00') ON CONFLICT DO NOTHING`);
+      }
+
+      // Repair: Create employee records and assignments for any users that don't have them
       const orphanUsers = await pool.query(
         `SELECT u.id, u.email, u.role, u.company_id 
          FROM users u 
@@ -604,12 +621,34 @@ async function runMigrations() {
         const firstName = parts[0] || namePart;
         const lastName = parts.slice(1).join(' ') || '';
         const empCode = 'EMP-' + String(user.id).padStart(3, '0');
-        await pool.query(
-          `INSERT INTO employees (company_id, first_name, last_name, employee_code, email, role, status, joining_date, department_id, designation_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-          [user.company_id, firstName, lastName, empCode, user.email, user.role, 'ACTIVE', new Date().toISOString().split('T')[0], 1, 1]
+        const empResult = await pool.query(
+          `INSERT INTO employees (company_id, first_name, last_name, employee_code, email, role, status, joining_date, department_id, designation_id, shift_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+          [user.company_id, firstName, lastName, empCode, user.email, user.role, 'ACTIVE', new Date().toISOString().split('T')[0], 1, 1, 1]
         );
-        console.log('--- DB: Repaired missing employee for:', user.email, '---');
+        const empId = empResult.rows[0].id;
+        
+        await pool.query(
+          `INSERT INTO employee_shifts (employee_id, shift_id, company_id, effective_from) 
+           VALUES ($1, 1, $2, CURRENT_DATE) ON CONFLICT DO NOTHING`,
+          [empId, user.company_id]
+        );
+        console.log('--- DB: Repaired missing employee and shift for:', user.email, '---');
+      }
+
+      // Special repair: Ensure ALL existing employees have a shift assignment
+      const employeesWithoutShift = await pool.query(
+        `SELECT e.id, e.company_id FROM employees e 
+         LEFT JOIN employee_shifts es ON e.id = es.employee_id 
+         WHERE es.id IS NULL`
+      );
+      for (const emp of employeesWithoutShift.rows) {
+        await pool.query(
+          `INSERT INTO employee_shifts (employee_id, shift_id, company_id, effective_from) 
+           VALUES ($1, 1, $2, CURRENT_DATE)`,
+          [emp.id, emp.company_id]
+        );
+        console.log('--- DB: Assigned default shift to employee ID:', emp.id, '---');
       }
       
       console.log('--- DB: PostgreSQL Migrations Complete ---');
