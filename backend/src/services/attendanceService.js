@@ -90,7 +90,22 @@ const calculateAttendance = (shift, checkIn, checkOut) => {
 /**
  * Process check-in
  */
-const checkIn = async (employeeId, companyId, location, manualCheckInTime) => {
+const checkIn = async (userIdOrEmployeeId, companyId, location, manualCheckInTime) => {
+  // 1. Resolve actual Employee ID if a User ID was provided
+  // In our system, req.user.id is often passed, which is the users.id
+  let employeeId = userIdOrEmployeeId;
+  
+  const userResult = await query('SELECT email FROM users WHERE id = $1', [userIdOrEmployeeId]);
+  if (userResult.rows.length > 0) {
+    const userEmail = userResult.rows[0].email;
+    const empResult = await query('SELECT id FROM employees WHERE email = $1 AND company_id = $2', [userEmail, companyId]);
+    if (empResult.rows.length > 0) {
+      employeeId = empResult.rows[0].id;
+      console.log(`[CheckIn] Resolved userId ${userIdOrEmployeeId} to employeeId ${employeeId} for ${userEmail}`);
+    }
+  }
+
+  // 2. Fetch Shift
   const shiftResult = await query(
     `SELECT s.* FROM employee_shifts es 
      JOIN shifts s ON es.shift_id = s.id 
@@ -101,7 +116,15 @@ const checkIn = async (employeeId, companyId, location, manualCheckInTime) => {
   );
 
   const shift = shiftResult.rows[0];
-  if (!shift) throw new Error('No assigned shift found for this employee.');
+  if (!shift) {
+    console.error(`[CheckIn Error] No shift found for employeeId: ${employeeId}, companyId: ${companyId}`);
+    // Diagnostic check: Does the employee even exist?
+    const empCheck = await query('SELECT id, first_name, email FROM employees WHERE id = $1', [employeeId]);
+    if (empCheck.rows.length === 0) {
+      throw new Error(`Employee record not found for ID ${employeeId}.`);
+    }
+    throw new Error(`No assigned shift found for employee ${empCheck.rows[0].first_name} (${empCheck.rows[0].id}). Please ensure a shift is assigned in the Employee matching your login email.`);
+  }
 
   const checkInTime = manualCheckInTime ? new Date(manualCheckInTime) : new Date();
   const { status, expectedCheckoutTime, lateMinutes } = calculateAttendance(shift, checkInTime, null);
