@@ -596,20 +596,15 @@ const getDailyAttendance = async (companyId, dateStr) => {
 
       const { daily_attendance } = calculateAttendance({ ...shift, employee_id: emp.id }, checkIn, checkOut, empEvents, empSessions);
 
-      // Expected checkout = shift end time on that day (IST)
-      // Build IST date from check-in date + shift times
-      const dateOnly = checkIn.toISOString().split('T')[0]; // YYYY-MM-DD
-      let expectedOutISO = null;
-      if (shift?.shift_end_time) {
-        const [eh, em] = shift.shift_end_time.split(':').map(Number);
-        // IST is UTC+5:30, so subtract 5:30 to get UTC
-        expectedOutISO = new Date(`${dateOnly}T${String(eh).padStart(2,'0')}:${String(em).padStart(2,'0')}:00+05:30`);
-      }
+      // Expected checkout = check-in + shift total working hours
+      const shiftHrs = parseFloat(shift?.total_working_hours || 9);
+      const expectedOutISO = new Date(checkIn.getTime() + shiftHrs * 60 * 60 * 1000);
 
       // Late minutes: diff between check_in and shift_start_time (IST)
       let lateMinutes = 0;
       if (shift?.shift_start_time) {
         const [sh, sm] = shift.shift_start_time.split(':').map(Number);
+        const dateOnly = checkIn.toISOString().split('T')[0];
         const shiftStartISO = new Date(`${dateOnly}T${String(sh).padStart(2,'0')}:${String(sm).padStart(2,'0')}:00+05:30`);
         if (checkIn > shiftStartISO) {
           lateMinutes = Math.floor((checkIn - shiftStartISO) / 60000);
