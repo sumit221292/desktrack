@@ -642,7 +642,7 @@ const getDailyAttendance = async (companyId, dateStr) => {
         workHours: netMins > 0 ? fmtTime(netMins) : (isCheckedIn ? 'In Progress' : '0h 00m'),
         expectedCheckout: expectedOut.toISOString(),
         lateMinutes,
-        displayStatus: isCheckedIn ? displayStatus : daily_attendance.status,
+        displayStatus,
         shortfallMinutes: isCheckedIn ? 0 : shortfallMinutes,
         activeTime: fmtTime(netMins),
         breakTime: fmtTime(breakMins),
