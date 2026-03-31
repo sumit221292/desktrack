@@ -237,7 +237,7 @@ const Attendance = () => {
                 <th className="px-5 py-4 font-bold text-slate-600 uppercase text-xs tracking-wider border-b border-slate-200">Employee</th>
                 <th className="px-5 py-4 font-bold text-slate-600 uppercase text-xs tracking-wider border-b border-slate-200">Timings</th>
                 <th className="px-5 py-4 font-bold text-slate-600 uppercase text-xs tracking-wider border-b border-slate-200">Expected Out</th>
-                <th className="px-5 py-4 font-bold text-slate-600 uppercase text-xs tracking-wider border-b border-slate-200">Late Mins</th>
+                <th className="px-5 py-4 font-bold text-slate-600 uppercase text-xs tracking-wider border-b border-slate-200">Late By</th>
                 <th className="px-5 py-4 font-bold text-slate-600 uppercase text-xs tracking-wider border-b border-slate-200">Work Hours</th>
                 <th className="px-5 py-4 font-bold text-slate-600 uppercase text-xs tracking-wider border-b border-slate-200">Productivity</th>
                 <th className="px-5 py-4 font-bold text-slate-600 uppercase text-xs tracking-wider border-b border-slate-200 text-center">Status</th>
@@ -260,12 +260,12 @@ const Attendance = () => {
                       <div className="flex items-center text-sm font-bold text-slate-800"><span className="w-8 text-slate-400 text-[10px] font-bold uppercase tracking-wide">OUT:</span>{record.checkOut}</div>
                     </div>
                   </td>
-                  <td className="px-5 py-3 font-bold text-primary-700 text-sm">{record.expectedCheckout && record.expectedCheckout !== '-' ? (record.expectedCheckout.includes('T') ? formatTime(record.expectedCheckout.split('T')[1].substring(0, 5)) : record.expectedCheckout) : '-'}</td>
+                  <td className="px-5 py-3 font-bold text-primary-700 text-sm">{record.expectedCheckout && record.expectedCheckout !== '-' ? new Date(record.expectedCheckout).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : '-'}</td>
                   <td className="px-5 py-3">
                     {record.lateMinutes > 0 ? (
-                      <span className="text-orange-600 font-bold text-sm bg-orange-50 px-2.5 py-1 rounded-md">{minsToHMS(record.lateMinutes)}</span>
+                      <span className="text-orange-600 font-bold text-sm bg-orange-50 px-2.5 py-1 rounded-md">{`${String(Math.floor(record.lateMinutes / 60)).padStart(2,'0')}h ${String(record.lateMinutes % 60).padStart(2,'0')}m`}</span>
                     ) : (
-                      <span className="text-slate-300 font-medium text-sm">00:00:00</span>
+                      <span className="text-emerald-600 font-bold text-sm">On Time</span>
                     )}
                   </td>
                   <td className="px-5 py-3">
