@@ -596,18 +596,23 @@ const getDailyAttendance = async (companyId, dateStr) => {
 
       const { daily_attendance } = calculateAttendance({ ...shift, employee_id: emp.id }, checkIn, checkOut, empEvents, empSessions);
 
-      // Calculate expected checkout: check_in + shift total hours
-      const shiftHours = parseFloat(shift?.total_working_hours || 9);
-      const expectedOut = new Date(checkIn.getTime() + shiftHours * 60 * 60 * 1000);
+      // Expected checkout = shift end time on that day (IST)
+      // Build IST date from check-in date + shift times
+      const dateOnly = checkIn.toISOString().split('T')[0]; // YYYY-MM-DD
+      let expectedOutISO = null;
+      if (shift?.shift_end_time) {
+        const [eh, em] = shift.shift_end_time.split(':').map(Number);
+        // IST is UTC+5:30, so subtract 5:30 to get UTC
+        expectedOutISO = new Date(`${dateOnly}T${String(eh).padStart(2,'0')}:${String(em).padStart(2,'0')}:00+05:30`);
+      }
 
-      // Late minutes: diff between check_in and shift_start_time (if late)
+      // Late minutes: diff between check_in and shift_start_time (IST)
       let lateMinutes = 0;
       if (shift?.shift_start_time) {
         const [sh, sm] = shift.shift_start_time.split(':').map(Number);
-        const shiftStart = new Date(checkIn);
-        shiftStart.setHours(sh, sm, 0, 0);
-        if (checkIn > shiftStart) {
-          lateMinutes = Math.floor((checkIn - shiftStart) / 60000);
+        const shiftStartISO = new Date(`${dateOnly}T${String(sh).padStart(2,'0')}:${String(sm).padStart(2,'0')}:00+05:30`);
+        if (checkIn > shiftStartISO) {
+          lateMinutes = Math.floor((checkIn - shiftStartISO) / 60000);
         }
       }
 
@@ -619,7 +624,7 @@ const getDailyAttendance = async (companyId, dateStr) => {
       else if (arrStatus === 'halfday') displayStatus = 'HALF DAY';
 
       // Shortfall
-      const shiftMins = shiftHours * 60;
+      const shiftMins = (parseFloat(shift?.total_working_hours || 9)) * 60;
       const shortfallMinutes = daily_attendance.net_work_minutes < shiftMins ? Math.floor(shiftMins - daily_attendance.net_work_minutes) : 0;
 
       // Active / Break / Idle times
@@ -640,7 +645,7 @@ const getDailyAttendance = async (companyId, dateStr) => {
         name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown',
         role: emp.role,
         workHours: netMins > 0 ? fmtTime(netMins) : (isCheckedIn ? 'In Progress' : '0h 00m'),
-        expectedCheckout: expectedOut.toISOString(),
+        expectedCheckout: expectedOutISO ? expectedOutISO.toISOString() : '-',
         lateMinutes,
         displayStatus,
         shortfallMinutes: isCheckedIn ? 0 : shortfallMinutes,

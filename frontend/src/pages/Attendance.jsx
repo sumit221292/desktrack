@@ -34,6 +34,14 @@ const Attendance = () => {
   const [records, setRecords] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  const minsToHMS = (totalMins) => {
+    if (!totalMins || totalMins <= 0) return '00:00:00';
+    const h = Math.floor(totalMins / 60);
+    const m = Math.floor(totalMins % 60);
+    const s = Math.round((totalMins % 1) * 60);
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  };
+
   const formatTime = (timeStr, offsetMins = 0) => {
     if (!timeStr) return '-';
     let [h, m] = timeStr.split(':').map(Number);
@@ -255,24 +263,36 @@ const Attendance = () => {
                   <td className="px-5 py-3 font-bold text-primary-700 text-sm">{record.expectedCheckout && record.expectedCheckout !== '-' ? (record.expectedCheckout.includes('T') ? formatTime(record.expectedCheckout.split('T')[1].substring(0, 5)) : record.expectedCheckout) : '-'}</td>
                   <td className="px-5 py-3">
                     {record.lateMinutes > 0 ? (
-                      <span className="text-orange-600 font-bold text-sm bg-orange-50 px-2.5 py-1 rounded-md">+{record.lateMinutes}m</span>
+                      <span className="text-orange-600 font-bold text-sm bg-orange-50 px-2.5 py-1 rounded-md">{minsToHMS(record.lateMinutes)}</span>
                     ) : (
-                      <span className="text-slate-300 font-medium text-sm">-</span>
+                      <span className="text-slate-300 font-medium text-sm">00:00:00</span>
                     )}
                   </td>
                   <td className="px-5 py-3">
-                    <div className="font-bold text-slate-900 text-sm">{record.workHours}</div>
+                    <div className="font-bold text-slate-900 text-sm">{minsToHMS(record.net_work_minutes)}</div>
                     {record.shortfallMinutes > 0 ? (
-                      <div className="text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded text-[11px] font-bold mt-1 inline-block">-{record.shortfallMinutes}m Shortfall</div>
+                      <div className="text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded text-[11px] font-bold mt-1 inline-block">-{minsToHMS(record.shortfallMinutes)} Shortfall</div>
                     ) : record.checkIn !== '-' ? (
                       <div className="text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded text-[11px] font-bold mt-1 inline-block">✓ Completed</div>
                     ) : null}
                   </td>
                   <td className="px-5 py-3">
-                     <div className="flex flex-col gap-1 text-[11px] font-bold">
-                        <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-emerald-100 flex items-center justify-center text-emerald-600">A</span> {record.activeTime || record.active_time}</div>
-                        <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-slate-100 flex items-center justify-center text-slate-500">B</span> {record.breakTime || record.break_time}</div>
-                        <div className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-amber-100 flex items-center justify-center text-amber-600">I</span> {record.idleTime || record.idle_time}</div>
+                     <div className="flex flex-col gap-1.5 text-[11px] font-bold">
+                        <div className="flex items-center gap-2">
+                          <span className="w-[18px] h-[18px] rounded bg-emerald-100 flex items-center justify-center text-emerald-600 text-[9px] shrink-0">W</span>
+                          <span className="text-slate-500 w-10">Work</span>
+                          <span className="text-emerald-700">{minsToHMS(record.net_work_minutes)}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="w-[18px] h-[18px] rounded bg-blue-100 flex items-center justify-center text-blue-600 text-[9px] shrink-0">B</span>
+                          <span className="text-slate-500 w-10">Break</span>
+                          <span className="text-blue-700">{minsToHMS(record.total_break_minutes)}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="w-[18px] h-[18px] rounded bg-amber-100 flex items-center justify-center text-amber-600 text-[9px] shrink-0">I</span>
+                          <span className="text-slate-500 w-10">Idle</span>
+                          <span className="text-amber-700">{minsToHMS(Math.max(0, (record.gross_minutes || 0) - (record.net_work_minutes || 0) - (record.total_break_minutes || 0)))}</span>
+                        </div>
                      </div>
                   </td>
                   <td className="px-5 py-3 text-center">
