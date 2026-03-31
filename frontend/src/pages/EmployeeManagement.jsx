@@ -15,7 +15,7 @@ import { motion } from 'framer-motion';
 
 const EmployeeManagement = () => {
   const navigate = useNavigate();
-  const { selectedDate, setSelectedDate } = useAuth();
+  const { user, selectedDate, setSelectedDate, hasPermission } = useAuth();
   const [employees, setEmployees] = useState([]);
   const [fields, setFields] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -56,10 +56,35 @@ const EmployeeManagement = () => {
     fetchData();
   }, []);
 
+  // Standard employee columns — anything else is a custom field value
+  const STANDARD_KEYS = new Set([
+    'first_name', 'last_name', 'email', 'employee_code',
+    'designation_id', 'department_id', 'salary_info', 'joining_date',
+    'shift_id', 'role', 'status'
+  ]);
+
+  const splitCustomValues = (values) => {
+    const standard = {};
+    const customDbIds = {}; // { db_id: value }
+    Object.entries(values).forEach(([key, val]) => {
+      if (STANDARD_KEYS.has(key)) {
+        standard[key] = val;
+      } else {
+        // Find the field definition to get the db_id
+        const fieldDef = fields.find(f => f.id === key || f.field_id === key);
+        if (fieldDef && fieldDef.db_id) {
+          customDbIds[fieldDef.db_id] = val;
+        }
+      }
+    });
+    return { standard, customDbIds };
+  };
+
   const handleAddEmployee = async (values) => {
     setIsSubmitting(true);
     try {
-      await api.post('/employees', values);
+      const { standard, customDbIds } = splitCustomValues(values);
+      await api.post('/employees', { ...standard, custom_field_values: customDbIds });
       await fetchEmployees();
       setShowAddModal(false);
     } catch (err) {
@@ -80,7 +105,17 @@ const EmployeeManagement = () => {
     if (!selectedEmployee) return;
     setIsSubmitting(true);
     try {
-      await api.put(`/employees/${selectedEmployee.id}`, values);
+      const { standard, customDbIds } = splitCustomValues(values);
+      await api.put(`/employees/${selectedEmployee.id}`, { ...standard, custom_field_values: customDbIds });
+
+      // If the current user's role was changed, update the session immediately
+      if (user && selectedEmployee.email === user.email && values.role && values.role !== user.role) {
+        const updatedUser = { ...user, role: values.role };
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        window.location.reload();
+        return;
+      }
+
       await fetchEmployees();
       setShowEditModal(false);
       setSelectedEmployee(null);
@@ -156,10 +191,12 @@ const EmployeeManagement = () => {
               style={{ colorScheme: 'light' }}
             />
           </div>
-          <Button onClick={() => setShowAddModal(true)} className="gap-2 self-start sm:self-auto h-[42px]">
-            <Plus size={18} />
-            Add Employee
-          </Button>
+          {hasPermission('employees', 'create') && (
+            <Button onClick={() => setShowAddModal(true)} className="gap-2 self-start sm:self-auto h-[42px]">
+              <Plus size={18} />
+              Add Employee
+            </Button>
+          )}
         </div>
       </header>
 
@@ -248,20 +285,24 @@ const EmployeeManagement = () => {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
-                          onClick={(e) => handleEditClick(e, emp)}
-                          className="p-1.5 text-slate-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors" 
-                          title="Edit"
-                        >
-                          <Edit size={16} />
-                        </button>
-                        <button 
-                          onClick={(e) => handleDeleteClick(e, emp)}
-                          className="p-1.5 text-slate-400 hover:text-alert-600 hover:bg-alert-50 rounded-lg transition-colors" 
-                          title="Delete"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {hasPermission('employees', 'edit') && (
+                          <button
+                            onClick={(e) => handleEditClick(e, emp)}
+                            className="p-1.5 text-slate-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+                            title="Edit"
+                          >
+                            <Edit size={16} />
+                          </button>
+                        )}
+                        {hasPermission('employees', 'delete') && (
+                          <button
+                            onClick={(e) => handleDeleteClick(e, emp)}
+                            className="p-1.5 text-slate-400 hover:text-alert-600 hover:bg-alert-50 rounded-lg transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </motion.tr>

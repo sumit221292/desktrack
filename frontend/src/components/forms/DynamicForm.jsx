@@ -94,6 +94,18 @@ const DynamicForm = ({ fields, initialValues = {}, onSubmit, isLoading, onCancel
                 error={errors[field.id]}
               />
             )}
+
+            {field.field_type === 'boolean' && (
+              <label className="flex items-center gap-3 cursor-pointer mt-1">
+                <input
+                  type="checkbox"
+                  checked={values[field.id] === true || values[field.id] === 'true'}
+                  onChange={(e) => handleChange(field.id, e.target.checked)}
+                  className="w-5 h-5 rounded border-slate-300 text-primary-600 focus:ring-primary-500/20"
+                />
+                <span className="text-sm font-medium text-slate-600">Yes</span>
+              </label>
+            )}
           </div>
         ))}
       </div>

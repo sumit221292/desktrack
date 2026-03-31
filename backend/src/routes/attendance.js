@@ -60,6 +60,22 @@ router.post('/check-out/:id', async (req, res) => {
   }
 });
 
+// Log event (Break Start/End)
+router.post('/event', async (req, res) => {
+  try {
+    const result = await attendanceService.logEvent(
+      req.user.id,
+      req.tenantId,
+      req.body.event_type,
+      req.body.event_time,
+      req.body.attendance_id
+    );
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Update Attendance (Edit/Remarks)
 router.put('/:id', async (req, res) => {
   try {

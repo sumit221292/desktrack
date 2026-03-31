@@ -18,6 +18,25 @@ export const AuthProvider = ({ children }) => {
     return localStorage.getItem('attendanceId');
   });
   const [shifts, setShifts] = useState([]);
+  // Currency configuration (default: INR)
+  const [currencyConfig, setCurrencyConfig] = useState(() => {
+    const saved = localStorage.getItem('currencyConfig');
+    return saved ? JSON.parse(saved) : { code: 'INR', symbol: '₹', name: 'Indian Rupee', locale: 'en-IN' };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('currencyConfig', JSON.stringify(currencyConfig));
+  }, [currencyConfig]);
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat(currencyConfig.locale, {
+      style: 'currency',
+      currency: currencyConfig.code,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
+    }).format(amount || 0);
+  };
+
   const [enabledModules, setEnabledModules] = useState(() => {
     const saved = localStorage.getItem('enabledModules');
     return saved ? JSON.parse(saved) : {
@@ -29,6 +48,33 @@ export const AuthProvider = ({ children }) => {
       performance: true
     };
   });
+
+  // Role-based permissions
+  const DEFAULT_ROLE_PERMISSIONS = {
+    SUPER_ADMIN: { employees: ['view','create','edit','delete'], attendance: ['view','create','edit','delete'], leaves: ['view','create','edit','delete','approve'], payroll: ['view','create','edit','delete','approve'], reports: ['view','create','edit','delete'], performance: ['view','create','edit','delete'], settings: ['view','edit'] },
+    HR: { employees: ['view','create','edit'], attendance: ['view','edit'], leaves: ['view','approve'], payroll: ['view'], reports: ['view'], performance: ['view'], settings: ['view','edit'] },
+    MANAGER: { employees: ['view'], attendance: ['view','edit'], leaves: ['view','approve'], payroll: [], reports: ['view'], performance: ['view'], settings: [] },
+    EMPLOYEE: { employees: ['view'], attendance: ['view'], leaves: ['view'], payroll: [], reports: [], performance: [], settings: [] }
+  };
+
+  const [rolePermissions, setRolePermissions] = useState(() => {
+    const saved = localStorage.getItem('rolePermissions');
+    return saved ? JSON.parse(saved) : DEFAULT_ROLE_PERMISSIONS;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('rolePermissions', JSON.stringify(rolePermissions));
+  }, [rolePermissions]);
+
+  const hasPermission = (module, action) => {
+    if (!user) return false;
+    const role = user.role?.toUpperCase() || 'EMPLOYEE';
+    // SUPER_ADMIN always has full access
+    if (role === 'SUPER_ADMIN') return true;
+    const perms = rolePermissions[role];
+    if (!perms) return false;
+    return perms[module]?.includes(action) || false;
+  };
 
   useEffect(() => {
     localStorage.setItem('enabledModules', JSON.stringify(enabledModules));
@@ -42,9 +88,9 @@ export const AuthProvider = ({ children }) => {
         const d = new Date();
         const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         const response = await api.get(`/attendance?date=${today}`);
-        const myRecord = response.data.find(r => r.email === user.email || r.employee_id === user.id);
+        const myRecord = response.data.find(r => (r.email && user.email && r.email.toLowerCase() === user.email.toLowerCase()) || r.employee_id === user.id);
         
-        if (myRecord && myRecord.is_checked_in && !String(myRecord.id).startsWith('dummy-')) {
+        if (myRecord && myRecord.is_checked_in && !String(myRecord.id).startsWith('dummy-') && !String(myRecord.id).startsWith('no-ref-')) {
           setIsCheckedIn(true);
           setAttendanceId(myRecord.id);
           localStorage.setItem('isCheckedIn', 'true');
@@ -169,7 +215,7 @@ export const AuthProvider = ({ children }) => {
           const d = new Date();
           const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
           const statusRes = await api.get(`/attendance?date=${today}`);
-          const myRecord = statusRes.data.find(r => r.email === user.email && !r.check_out && !String(r.id).startsWith('dummy-'));
+          const myRecord = statusRes.data.find(r => r.email === user.email && r.is_checked_in && !String(r.id).startsWith('no-ref-'));
           if (myRecord) {
             await api.post(`/attendance/check-out/${myRecord.id}`, {});
           }
@@ -199,11 +245,13 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider value={{ 
-      user, login, googleLogin, logout, loading, 
+      user, login, googleLogin, logout, loading,
       isCheckedIn, toggleCheckIn,
       selectedDate, setSelectedDate: handleSetSelectedDate,
       shifts, setShifts: handleUpdateShifts,
-      enabledModules, setEnabledModules
+      enabledModules, setEnabledModules,
+      rolePermissions, setRolePermissions, hasPermission,
+      currencyConfig, setCurrencyConfig, formatCurrency
     }}>
       {children}
     </AuthContext.Provider>

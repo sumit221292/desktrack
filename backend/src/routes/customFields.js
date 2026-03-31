@@ -55,15 +55,18 @@ router.get('/', async (req, res) => {
 });
 
 // CREATE custom field
-router.post('/', checkRole(['SUPER_ADMIN', 'HR', 'EMPLOYEE']), async (req, res) => {
+router.post('/', checkRole(['SUPER_ADMIN', 'HR']), async (req, res) => {
   const companyId = req.tenantId;
   const { moduleName, fieldName, fieldType, isRequired, options } = req.body;
 
+  // Auto-generate field_id from field name (e.g. "Passport Number" → "custom_passport_number")
+  const fieldId = 'custom_' + fieldName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+
   try {
     const result = await query(
-      `INSERT INTO custom_fields (module_name, field_name, field_type, is_required, options, company_id)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [moduleName.toLowerCase(), fieldName, fieldType, isRequired, typeof options === 'string' ? options : JSON.stringify(options), companyId]
+      `INSERT INTO custom_fields (module_name, field_name, field_type, is_required, options, company_id, field_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [moduleName.toLowerCase(), fieldName, fieldType, isRequired, typeof options === 'string' ? options : JSON.stringify(options), companyId, fieldId]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -73,7 +76,7 @@ router.post('/', checkRole(['SUPER_ADMIN', 'HR', 'EMPLOYEE']), async (req, res) 
 });
 
 // UPDATE custom field
-router.put('/:id', checkRole(['SUPER_ADMIN', 'HR', 'EMPLOYEE']), async (req, res) => {
+router.put('/:id', checkRole(['SUPER_ADMIN', 'HR']), async (req, res) => {
   const companyId = req.tenantId;
   const { id } = req.params;
   const { moduleName, fieldName, fieldType, isRequired, options } = req.body;
@@ -97,7 +100,7 @@ router.put('/:id', checkRole(['SUPER_ADMIN', 'HR', 'EMPLOYEE']), async (req, res
 });
 
 // DELETE custom field
-router.delete('/:id', checkRole(['SUPER_ADMIN', 'HR', 'EMPLOYEE']), async (req, res) => {
+router.delete('/:id', checkRole(['SUPER_ADMIN', 'HR']), async (req, res) => {
   const companyId = req.tenantId;
   const { id } = req.params;
 
@@ -115,6 +118,53 @@ router.delete('/:id', checkRole(['SUPER_ADMIN', 'HR', 'EMPLOYEE']), async (req, 
   } catch (err) {
     console.error('Delete Custom Field Error:', err);
     res.status(500).json({ error: 'Server error deleting custom field.' });
+  }
+});
+
+// ─── Custom Field VALUES per entity (employee) ───────────────────────────
+
+// GET values for an entity (employee)
+router.get('/values/:entityId', async (req, res) => {
+  const companyId = req.tenantId;
+  const { entityId } = req.params;
+  try {
+    const result = await query(
+      `SELECT cfv.field_id, cfv.value, cf.field_name, cf.field_type, cf.field_id as field_key
+       FROM custom_field_values cfv
+       JOIN custom_fields cf ON cfv.field_id = cf.id AND cf.company_id = $1
+       WHERE cfv.entity_id = $2 AND cfv.company_id = $1`,
+      [companyId, entityId]
+    );
+    // Return as a map: { field_key: value }
+    const valuesMap = {};
+    result.rows.forEach(r => { valuesMap[r.field_key] = r.value; });
+    res.json(valuesMap);
+  } catch (err) {
+    console.error('Get Custom Field Values Error:', err);
+    res.status(500).json({ error: 'Server error retrieving custom field values.' });
+  }
+});
+
+// SAVE/UPDATE values for an entity (employee) — bulk upsert
+router.post('/values/:entityId', async (req, res) => {
+  const companyId = req.tenantId;
+  const { entityId } = req.params;
+  const { values } = req.body; // { field_db_id: value, ... }
+
+  try {
+    const promises = Object.entries(values || {}).map(([fieldId, value]) =>
+      query(
+        `INSERT INTO custom_field_values (company_id, entity_id, field_id, value)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (entity_id, field_id) DO UPDATE SET value = EXCLUDED.value`,
+        [companyId, entityId, fieldId, String(value ?? '')]
+      )
+    );
+    await Promise.all(promises);
+    res.json({ message: 'Custom field values saved.' });
+  } catch (err) {
+    console.error('Save Custom Field Values Error:', err);
+    res.status(500).json({ error: 'Server error saving custom field values.' });
   }
 });
 

@@ -10,8 +10,12 @@ build
 tmp
 employees.json
 backend/db.json
-backend/db_query.log
 backend/.env
+# Logs
+*.log
+# Debug/test artifacts
+backend/stats_debug.json
+backend/test_output.txt
 # Ignore any other data-specific files
 *.db
 *.sqlite

@@ -119,7 +119,7 @@ const Dashboard = () => {
             }`}
           >
             <Clock size={16} />
-            {isCheckedIn ? 'Check Out Now' : 'MISSING: Check In Now'}
+            {isCheckedIn ? 'Check Out Now' : 'Check In Now'}
           </button>
 
           <div className="relative group flex items-center bg-white px-2 py-1.5 rounded-xl border border-slate-200 shadow-sm text-sm font-medium text-slate-600 focus-within:ring-2 focus-within:ring-primary-500/20 focus-within:border-primary-500 transition-all cursor-pointer">

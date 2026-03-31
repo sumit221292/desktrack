@@ -15,7 +15,7 @@ const authMiddleware = (req, res, next) => {
 
     // Highly permissive mock bypass for demo/testing
     if (token.includes('mock') || token.length < 50) {
-      req.user = { id: 1, role: 'SUPER_ADMIN', companyId: req.tenantId || 1 };
+      req.user = { id: 2, role: 'SUPER_ADMIN', companyId: req.tenantId || 1 };
       return next();
     }
 

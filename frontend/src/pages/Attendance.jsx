@@ -8,15 +8,17 @@ import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 
 const getStatusBadge = (status, reason = '') => {
-  switch(status) {
-    case 'Present': return <Badge variant="success" title={reason}>Present (P)</Badge>;
-    case 'Late': return <Badge variant="warning" title={reason}>Late (LT)</Badge>;
-    case 'Over Late': return <Badge variant="danger" className="bg-orange-500 text-white border-none" title={reason}>Over Late (OL)</Badge>;
-    case 'Absent': return <Badge variant="danger" title={reason}>Absent (A)</Badge>;
-    case 'Half Day': return <Badge variant="primary" className="bg-rose-600 text-white border-none" title={reason}>Half Day (HD)</Badge>;
-    case 'Leave': return <Badge variant="danger" className="bg-slate-500 text-white border-none" title={reason}>Leave (L)</Badge>;
-    case 'Office Holiday': return <Badge variant="warning" className="bg-amber-500 text-white border-none" title={reason}>Office Holiday (OH)</Badge>;
-    case 'Public Holiday': return <Badge variant="warning" className="bg-amber-400 text-white border-none" title={reason}>Public Holiday (H)</Badge>;
+  const s = (status || '').toUpperCase().trim();
+  switch(s) {
+    case 'ON TIME': case 'PRESENT': case 'COMPLETE': return <Badge variant="success" title={reason}>On Time (P)</Badge>;
+    case 'LATE': case 'LATE_ARRIVAL': return <Badge variant="warning" title={reason}>Late (LT)</Badge>;
+    case 'OVER LATE': case 'OVERLATE': return <Badge variant="danger" className="bg-orange-500 text-white border-none" title={reason}>Over Late (OL)</Badge>;
+    case 'ABSENT': return <Badge variant="danger" title={reason}>Absent (A)</Badge>;
+    case 'HALF DAY': case 'HALFDAY': return <Badge variant="primary" className="bg-rose-600 text-white border-none" title={reason}>Half Day (HD)</Badge>;
+    case 'INCOMPLETE': return <Badge variant="warning" className="bg-blue-500 text-white border-none" title={reason}>Active</Badge>;
+    case 'LEAVE': return <Badge variant="danger" className="bg-slate-500 text-white border-none" title={reason}>Leave (L)</Badge>;
+    case 'OFFICE HOLIDAY': return <Badge variant="warning" className="bg-amber-500 text-white border-none" title={reason}>Office Holiday (OH)</Badge>;
+    case 'PUBLIC HOLIDAY': return <Badge variant="warning" className="bg-amber-400 text-white border-none" title={reason}>Public Holiday (H)</Badge>;
     default: return <Badge title={reason}>{status}</Badge>;
   }
 };
@@ -68,13 +70,17 @@ const Attendance = () => {
     try {
       const response = await api.get(`/attendance?date=${selectedDate}`);
       const data = response.data;
-      const mapped = data.map(r => ({
-        ...r,
-        checkIn: r.check_in && r.check_in !== '-' ? new Date(r.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : '-',
-        checkOut: r.check_out && r.check_out !== '-' ? new Date(r.check_out).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : '-',
-        displayName: r.name,
-        displayStatus: (r.status || '').replace('_', ' ')
-      }));
+      const mapped = data.map(r => {
+        const outTime = r.last_check_out || r.check_out;
+        return {
+          ...r,
+          checkIn: r.check_in && r.check_in !== '-' ? new Date(r.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : '-',
+          checkOut: outTime && outTime !== '-' ? new Date(outTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : (r.is_checked_in ? 'Active' : '-'),
+          expectedCheckout: r.expectedCheckout || '-',
+          displayName: r.name,
+          displayStatus: r.displayStatus || (r.status || '').replace('_', ' ')
+        };
+      });
       setRecords(mapped);
     } catch (err) {
       console.error('Failed to fetch attendance:', err);

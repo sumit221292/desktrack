@@ -39,6 +39,7 @@ app.use('/api/attendance', require('./routes/attendance'));
 app.use('/api/shifts', require('./routes/shifts'));
 app.use('/api/custom-fields', require('./routes/customFields'));
 app.use('/api/performance', require('./routes/performanceRoutes'));
+app.use('/api/payroll', require('./routes/payroll'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/health', require('./routes/health'));
 app.use('/api/config', require('./routes/config'));

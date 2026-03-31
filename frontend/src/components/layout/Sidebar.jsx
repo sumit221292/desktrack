@@ -9,7 +9,7 @@ import {
 import { cn } from '../ui/Button';
 
 const Sidebar = () => {
-  const { logout, enabledModules } = useAuth();
+  const { user, logout, enabledModules, hasPermission } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
 
@@ -21,8 +21,12 @@ const Sidebar = () => {
     { icon: CreditCard, label: 'Payroll', path: '/payroll', module: 'payroll' },
     { icon: TrendingUp, label: 'Performance', path: '/performance', module: 'performance' },
     { icon: FileBarChart, label: 'Reports', path: '/reports', module: 'reports' },
-    { icon: Settings, label: 'Settings', path: '/settings' },
-  ].filter(item => !item.module || enabledModules[item.module]);
+    { icon: Settings, label: 'Settings', path: '/settings', module: 'settings' },
+  ].filter(item => {
+    if (item.module && !enabledModules[item.module] && item.module !== 'settings') return false;
+    if (item.module && !hasPermission(item.module, 'view')) return false;
+    return true;
+  });
 
   return (
     <aside className={cn(

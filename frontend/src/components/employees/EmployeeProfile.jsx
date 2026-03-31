@@ -4,6 +4,7 @@ import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import DynamicForm from '../forms/DynamicForm';
 import api from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 
 const DetailItem = ({ icon: Icon, label, value, color = "text-slate-500" }) => (
   <div className="flex items-start space-x-3 p-3 rounded-xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100">
@@ -18,15 +19,45 @@ const DetailItem = ({ icon: Icon, label, value, color = "text-slate-500" }) => (
 );
 
 const EmployeeProfile = ({ employee, fields, onUpdate }) => {
+  const { user, hasPermission } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!employee) return null;
 
+  const STANDARD_KEYS = new Set([
+    'first_name', 'last_name', 'email', 'employee_code',
+    'designation_id', 'department_id', 'salary_info', 'joining_date',
+    'shift_id', 'role', 'status'
+  ]);
+
   const handleEditSubmit = async (values) => {
     setIsSubmitting(true);
     try {
-      await api.put(`/employees/${employee.id}`, values);
+      // Split standard vs custom field values
+      const standard = {};
+      const customDbIds = {};
+      Object.entries(values).forEach(([key, val]) => {
+        if (STANDARD_KEYS.has(key)) {
+          standard[key] = val;
+        } else {
+          const fieldDef = fields.find(f => f.id === key || f.field_id === key);
+          if (fieldDef && fieldDef.db_id) {
+            customDbIds[fieldDef.db_id] = val;
+          }
+        }
+      });
+
+      await api.put(`/employees/${employee.id}`, { ...standard, custom_field_values: customDbIds });
+
+      // If the current user's role was changed, update the session immediately
+      if (user && employee.email === user.email && values.role && values.role !== user.role) {
+        const updatedUser = { ...user, role: values.role };
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        window.location.reload();
+        return;
+      }
+
       if (onUpdate) await onUpdate();
       setIsEditing(false);
     } catch (err) {
@@ -82,7 +113,7 @@ const EmployeeProfile = ({ employee, fields, onUpdate }) => {
           </div>
           <div className="flex items-center gap-3">
             {!isEditing ? (
-              <Button onClick={() => setIsEditing(true)} className="gap-2 px-6 shadow-md shadow-primary-500/20">
+              hasPermission('employees', 'edit') && <Button onClick={() => setIsEditing(true)} className="gap-2 px-6 shadow-md shadow-primary-500/20">
                 <Edit2 size={16} />
                 Edit Profile
               </Button>
