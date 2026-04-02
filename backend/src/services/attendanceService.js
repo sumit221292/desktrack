@@ -374,23 +374,24 @@ const checkOut = async (attendanceId, companyId, manualCheckOutTime) => {
     [attendanceId]
   );
 
-  // 2. Find and close the active session
-  const openSession = await query(
-    'SELECT * FROM attendance_sessions WHERE attendance_id = $1 AND check_out IS NULL ORDER BY check_in DESC LIMIT 1',
+  // 2. Find and close ALL open sessions for this attendance
+  const openSessions = await query(
+    'SELECT * FROM attendance_sessions WHERE attendance_id = $1 AND check_out IS NULL ORDER BY check_in DESC',
     [attendanceId]
   );
-  if (openSession.rows.length === 0) {
+  if (openSessions.rows.length === 0) {
     // Session already closed — return existing record as-is (idempotent checkout)
     return { ...record, message: 'Already checked out' };
   }
 
-  const session = openSession.rows[0];
-  const durationMinutes = Math.floor((checkOutTime - new Date(session.check_in)) / 60000);
-
-  await query(
-    'UPDATE attendance_sessions SET check_out = $1, duration_minutes = $2 WHERE id = $3',
-    [checkOutTime, durationMinutes, session.id]
-  );
+  // Close every open session
+  for (const session of openSessions.rows) {
+    const durationMinutes = Math.max(0, Math.floor((checkOutTime - new Date(session.check_in)) / 60000));
+    await query(
+      'UPDATE attendance_sessions SET check_out = $1, duration_minutes = $2 WHERE id = $3',
+      [checkOutTime, durationMinutes, session.id]
+    );
+  }
 
   // 3. Calculate total working hours and other metrics using core engine
   const sessions = sessionsResult.rows;
