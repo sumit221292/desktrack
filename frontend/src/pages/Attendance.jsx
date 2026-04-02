@@ -28,6 +28,40 @@ const LiveTimer = ({ checkInTime, breakMins = 0 }) => {
   return <span className="text-emerald-600 font-mono tabular-nums">{elapsed}</span>;
 };
 
+// Live break timer: ticks from checkout until expected out
+const LiveBreakTimer = ({ checkOutTime, baseMins = 0, expectedOut }) => {
+  const [elapsed, setElapsed] = useState('00:00:00');
+  useEffect(() => {
+    if (!checkOutTime || checkOutTime === '-') return;
+    const coTime = new Date(checkOutTime).getTime();
+    const expTime = expectedOut ? new Date(expectedOut).getTime() : null;
+    const baseMs = (baseMins || 0) * 60000;
+    const tick = () => {
+      const now = Date.now();
+      // Stop ticking if expected out time has passed
+      if (expTime && now >= expTime) {
+        const diff = baseMs + Math.max(0, expTime - coTime);
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        const s = Math.floor((diff % 60000) / 1000);
+        setElapsed(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`);
+        return;
+      }
+      const diff = baseMs + Math.max(0, now - coTime);
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setElapsed(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`);
+    };
+    tick();
+    // Stop interval if already past expected out
+    if (expTime && Date.now() >= expTime) return;
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [checkOutTime, baseMins, expectedOut]);
+  return <span className="text-orange-600 font-mono tabular-nums">{elapsed}</span>;
+};
+
 const getStatusBadge = (status, reason = '') => {
   const s = (status || '').toUpperCase().trim();
   switch(s) {
@@ -313,7 +347,12 @@ const Attendance = () => {
                         <div className="flex items-center gap-2">
                           <span className="w-[18px] h-[18px] rounded bg-blue-100 flex items-center justify-center text-blue-600 text-[9px] shrink-0">B</span>
                           <span className="text-slate-500 w-10">Break</span>
-                          <span className="text-blue-700">{minsToHMS(record.total_break_minutes)}</span>
+                          <span className="text-blue-700">{
+                            // Live break timer: ticks after checkout until expected out
+                            !record.is_checked_in && record.check_out && record.check_out !== '-' && record.expectedCheckout && record.expectedCheckout !== '-' && new Date(record.check_out) < new Date(record.expectedCheckout)
+                              ? <LiveBreakTimer checkOutTime={record.check_out} baseMins={record.total_break_minutes} expectedOut={record.expectedCheckout} />
+                              : minsToHMS(record.total_break_minutes)
+                          }</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="w-[18px] h-[18px] rounded bg-amber-100 flex items-center justify-center text-amber-600 text-[9px] shrink-0">I</span>
