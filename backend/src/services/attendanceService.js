@@ -17,10 +17,9 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
 
   const getShiftDate = (timeString) => {
     if (!timeString) return null;
-    const d = new Date(firstCheckIn);
     const [h, m] = timeString.split(':').map(Number);
-    d.setHours(h, m, 0, 0);
-    return d;
+    // Build IST time on the same date as check-in
+    return new Date(`${dateStr}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00+05:30`);
   };
 
   const shiftStart = getShiftDate(shift.shift_start_time);
