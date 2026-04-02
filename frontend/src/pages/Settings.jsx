@@ -11,7 +11,7 @@ import { Modal } from '../components/ui/Modal';
 import { motion } from 'framer-motion';
 
 const Settings = () => {
-  const { user, shifts, setShifts, enabledModules, setEnabledModules, hasPermission, rolePermissions, setRolePermissions, currencyConfig, setCurrencyConfig, deductionTypes, setDeductionTypes } = useAuth();
+  const { user, shifts, setShifts, enabledModules, setEnabledModules, hasPermission, rolePermissions, setRolePermissions, currencyConfig, setCurrencyConfig, deductionTypes, setDeductionTypes, companyTimezone, setCompanyTimezone } = useAuth();
   const navigate = useNavigate();
 
   if (!hasPermission('settings', 'view')) {
@@ -595,6 +595,35 @@ const Settings = () => {
                 <Button onClick={() => { setEditingShift(null); setShiftFormData({ name: '', shift_start_time: '10:00', shift_end_time: '19:00', total_working_hours: 9, grace_minutes: 15, late_start_time: '10:16', late_end_time: '10:59', overlate_start_time: '11:00', halfday_start_time: '12:30' }); setShowShiftModal(true); }} className="gap-2">
                   <Plus size={16} /> Add Shift
                 </Button>
+              </div>
+
+              {/* Timezone Selector */}
+              <div className="px-6 pb-4 flex items-center gap-4 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <Clock size={16} className="text-slate-400" />
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Company Timezone</label>
+                </div>
+                <select
+                  value={companyTimezone}
+                  onChange={e => setCompanyTimezone(e.target.value)}
+                  className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold bg-white focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                >
+                  <option value="Asia/Kolkata">Asia/Kolkata (IST, UTC+5:30)</option>
+                  <option value="Asia/Dubai">Asia/Dubai (GST, UTC+4)</option>
+                  <option value="Asia/Singapore">Asia/Singapore (SGT, UTC+8)</option>
+                  <option value="Asia/Tokyo">Asia/Tokyo (JST, UTC+9)</option>
+                  <option value="Asia/Shanghai">Asia/Shanghai (CST, UTC+8)</option>
+                  <option value="Asia/Karachi">Asia/Karachi (PKT, UTC+5)</option>
+                  <option value="Asia/Dhaka">Asia/Dhaka (BST, UTC+6)</option>
+                  <option value="Europe/London">Europe/London (GMT, UTC+0)</option>
+                  <option value="Europe/Berlin">Europe/Berlin (CET, UTC+1)</option>
+                  <option value="America/New_York">America/New_York (EST, UTC-5)</option>
+                  <option value="America/Chicago">America/Chicago (CST, UTC-6)</option>
+                  <option value="America/Los_Angeles">America/Los_Angeles (PST, UTC-8)</option>
+                  <option value="Australia/Sydney">Australia/Sydney (AEST, UTC+10)</option>
+                  <option value="Pacific/Auckland">Pacific/Auckland (NZST, UTC+12)</option>
+                </select>
+                <span className="text-xs text-slate-400">All shift times are in this timezone</span>
               </div>
 
               <div className="w-full overflow-x-auto">

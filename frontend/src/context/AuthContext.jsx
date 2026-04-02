@@ -34,6 +34,7 @@ export const AuthProvider = ({ children }) => {
   const [enabledModules, setEnabledModules] = useState(DEFAULT_MODULES);
   const [rolePermissions, setRolePermissions] = useState(DEFAULT_ROLE_PERMISSIONS);
   const [deductionTypes, setDeductionTypes] = useState(DEFAULT_DEDUCTION_TYPES);
+  const [companyTimezone, setCompanyTimezone] = useState('Asia/Kolkata');
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat(currencyConfig.locale, {
@@ -62,6 +63,7 @@ export const AuthProvider = ({ children }) => {
       if (s.enabledModules) setEnabledModules(s.enabledModules);
       if (s.rolePermissions) setRolePermissions(s.rolePermissions);
       if (s.deductionTypes) setDeductionTypes(s.deductionTypes);
+      if (s.companyTimezone) setCompanyTimezone(s.companyTimezone);
     } catch (err) {
       console.warn('Failed to fetch company settings (using defaults):', err.message);
     }
@@ -80,6 +82,7 @@ export const AuthProvider = ({ children }) => {
   const updateCurrencyConfig = (val) => { setCurrencyConfig(val); saveCompanySetting('currencyConfig', val); };
   const updateEnabledModules = (val) => { setEnabledModules(val); saveCompanySetting('enabledModules', val); };
   const updateRolePermissions = (val) => { setRolePermissions(val); saveCompanySetting('rolePermissions', val); };
+  const updateCompanyTimezone = (val) => { setCompanyTimezone(val); saveCompanySetting('companyTimezone', val); };
   const updateDeductionTypes = (val) => { setDeductionTypes(val); saveCompanySetting('deductionTypes', val); };
 
   // Sync attendance status from backend on load or user change
@@ -265,7 +268,8 @@ export const AuthProvider = ({ children }) => {
       enabledModules, setEnabledModules: updateEnabledModules,
       rolePermissions, setRolePermissions: updateRolePermissions, hasPermission,
       currencyConfig, setCurrencyConfig: updateCurrencyConfig, formatCurrency,
-      deductionTypes, setDeductionTypes: updateDeductionTypes
+      deductionTypes, setDeductionTypes: updateDeductionTypes,
+      companyTimezone, setCompanyTimezone: updateCompanyTimezone
     }}>
       {children}
     </AuthContext.Provider>

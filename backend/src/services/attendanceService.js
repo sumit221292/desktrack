@@ -8,18 +8,54 @@ const { query } = require('../config/db');
 /**
  * Calculate attendance status based on shift, events (named breaks), and sessions (other breaks)
  */
+// Get UTC offset string for an IANA timezone (e.g. "Asia/Kolkata" → "+05:30")
+const getTzOffset = (tz) => {
+  try {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' }).formatToParts(now);
+    const offsetPart = parts.find(p => p.type === 'timeZoneName');
+    if (offsetPart) {
+      const m = offsetPart.value.match(/GMT([+-]\d{1,2}(?::?\d{2})?)/);
+      if (m) {
+        let off = m[1];
+        // Normalize: "+5:30" → "+05:30", "+8" → "+08:00"
+        const sign = off[0];
+        const nums = off.substring(1).split(':');
+        const hr = nums[0].padStart(2, '0');
+        const mn = (nums[1] || '00').padStart(2, '0');
+        return `${sign}${hr}:${mn}`;
+      }
+    }
+  } catch (e) {}
+  return '+05:30'; // fallback IST
+};
+
+// Fetch company timezone from settings DB
+const getCompanyTimezone = async (companyId) => {
+  try {
+    const result = await query(
+      'SELECT setting_value FROM company_settings WHERE company_id = $1 AND setting_key = $2',
+      [companyId, 'companyTimezone']
+    );
+    if (result.rows.length > 0) {
+      try { return JSON.parse(result.rows[0].setting_value); } catch { return result.rows[0].setting_value; }
+    }
+  } catch (e) {}
+  return 'Asia/Kolkata';
+};
+
 const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = []) => {
   if (!checkIn) return { status: 'MISSING_ENTRY', flags: ['NO_CHECK_IN'] };
 
   const firstCheckIn = new Date(checkIn);
   const lastCheckOut = checkOut ? new Date(checkOut) : null;
   const dateStr = firstCheckIn.toISOString().split('T')[0];
+  const tzOffset = getTzOffset(shift.timezone || 'Asia/Kolkata');
 
   const getShiftDate = (timeString) => {
     if (!timeString) return null;
     const [h, m] = timeString.split(':').map(Number);
-    // Build IST time on the same date as check-in
-    return new Date(`${dateStr}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00+05:30`);
+    return new Date(`${dateStr}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00${tzOffset}`);
   };
 
   const shiftStart = getShiftDate(shift.shift_start_time);
@@ -258,6 +294,10 @@ const checkIn = async (userIdOrEmployeeId, companyId, location, manualCheckInTim
   const shift = { ...shiftResult.rows[0], company_id: companyId, employee_id: employeeId };
   if (!shift.id) throw new Error('No assigned shift found.');
 
+  // Fetch company timezone
+  const tz = await getCompanyTimezone(companyId);
+  shift.timezone = tz;
+
   const checkInTime = manualCheckInTime ? new Date(manualCheckInTime) : new Date();
   const dateStr = checkInTime.toISOString().split('T')[0];
 
@@ -360,7 +400,8 @@ const checkOut = async (attendanceId, companyId, manualCheckOutTime) => {
     lunch_allowed_minutes: record.lunch_allowed_minutes,
     tea_allowed_minutes: record.tea_allowed_minutes,
     company_id: record.company_id,
-    employee_id: record.employee_id
+    employee_id: record.employee_id,
+    timezone: await getCompanyTimezone(companyId)
   };
 
   // 1.1 Fetch all sessions and events for the day
@@ -458,7 +499,7 @@ const updateAttendance = async (attendanceId, companyId, updates) => {
      WHERE es.employee_id = $1 AND es.company_id = $2`,
     [employeeId, companyId]
   );
-  const shift = { ...shiftResult.rows[0], company_id: companyId, employee_id: employeeId };
+  const shift = { ...shiftResult.rows[0], company_id: companyId, employee_id: employeeId, timezone: await getCompanyTimezone(companyId) };
 
   const checkInTime = updates.check_in ? new Date(updates.check_in) : (record ? new Date(record.check_in) : new Date());
   const checkOutTime = updates.check_out ? new Date(updates.check_out) : (record?.check_out ? new Date(record.check_out) : null);
@@ -599,6 +640,8 @@ const getDailyAttendance = async (companyId, dateStr) => {
   const shifts = await query('SELECT * FROM shifts WHERE company_id = $1', [companyId]);
   const shift = shifts.rows[0];
 
+  const companyTz = await getCompanyTimezone(companyId);
+
   const records = employees.rows.map((emp) => {
     const existing = attendance.rows.find(a => a.employee_id == emp.id);
     const empSessions = sessions.rows.filter(s => s.employee_id == emp.id);
@@ -612,7 +655,7 @@ const getDailyAttendance = async (companyId, dateStr) => {
       const empSessions = sessions.rows.filter(s => s.employee_id === emp.id);
       const empEvents = events.rows.filter(e => e.employee_id === emp.id);
 
-      const { daily_attendance } = calculateAttendance({ ...shift, employee_id: emp.id }, checkIn, checkOut, empEvents, empSessions);
+      const { daily_attendance } = calculateAttendance({ ...shift, employee_id: emp.id, timezone: companyTz }, checkIn, checkOut, empEvents, empSessions);
 
       // Expected checkout = check-in + shift total working hours
       const shiftHrs = parseFloat(shift?.total_working_hours || 9);
@@ -623,7 +666,7 @@ const getDailyAttendance = async (companyId, dateStr) => {
       if (shift?.shift_start_time) {
         const [sh, sm] = shift.shift_start_time.split(':').map(Number);
         const dateOnly = checkIn.toISOString().split('T')[0];
-        const shiftStartISO = new Date(`${dateOnly}T${String(sh).padStart(2,'0')}:${String(sm).padStart(2,'0')}:00+05:30`);
+        const shiftStartISO = new Date(`${dateOnly}T${String(sh).padStart(2,'0')}:${String(sm).padStart(2,'0')}:00${getTzOffset(companyTz)}`);
         if (checkIn > shiftStartISO) {
           lateMinutes = Math.floor((checkIn - shiftStartISO) / 60000);
         }
