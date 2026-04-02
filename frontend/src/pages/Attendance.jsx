@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Clock, Calendar as CalendarIcon, Filter, Search, Download, ChevronRight } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -6,6 +6,27 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
+
+// Live ticking timer for checked-in employees
+const LiveTimer = ({ checkInTime, breakMins = 0 }) => {
+  const [elapsed, setElapsed] = useState('00:00:00');
+  useEffect(() => {
+    if (!checkInTime || checkInTime === '-') return;
+    const start = new Date(checkInTime).getTime();
+    const breakMs = (breakMins || 0) * 60000;
+    const tick = () => {
+      const diff = Math.max(0, Date.now() - start - breakMs);
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setElapsed(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [checkInTime, breakMins]);
+  return <span className="text-emerald-600 font-mono tabular-nums">{elapsed}</span>;
+};
 
 const getStatusBadge = (status, reason = '') => {
   const s = (status || '').toUpperCase().trim();
@@ -269,8 +290,14 @@ const Attendance = () => {
                     )}
                   </td>
                   <td className="px-5 py-3">
-                    <div className="font-bold text-slate-900 text-sm">{minsToHMS(record.net_work_minutes)}</div>
-                    {record.shortfallMinutes > 0 ? (
+                    <div className="font-bold text-slate-900 text-sm">
+                      {record.is_checked_in
+                        ? <LiveTimer checkInTime={record.check_in} breakMins={record.total_break_minutes} />
+                        : minsToHMS(record.net_work_minutes)}
+                    </div>
+                    {record.is_checked_in ? (
+                      <div className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded text-[11px] font-bold mt-1 inline-block animate-pulse">● Working</div>
+                    ) : record.shortfallMinutes > 0 ? (
                       <div className="text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded text-[11px] font-bold mt-1 inline-block">-{minsToHMS(record.shortfallMinutes)} Shortfall</div>
                     ) : record.checkIn !== '-' ? (
                       <div className="text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded text-[11px] font-bold mt-1 inline-block">✓ Completed</div>
@@ -281,7 +308,7 @@ const Attendance = () => {
                         <div className="flex items-center gap-2">
                           <span className="w-[18px] h-[18px] rounded bg-emerald-100 flex items-center justify-center text-emerald-600 text-[9px] shrink-0">W</span>
                           <span className="text-slate-500 w-10">Work</span>
-                          <span className="text-emerald-700">{minsToHMS(record.net_work_minutes)}</span>
+                          <span className="text-emerald-700">{record.is_checked_in ? <LiveTimer checkInTime={record.check_in} breakMins={record.total_break_minutes} /> : minsToHMS(record.net_work_minutes)}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="w-[18px] h-[18px] rounded bg-blue-100 flex items-center justify-center text-blue-600 text-[9px] shrink-0">B</span>
