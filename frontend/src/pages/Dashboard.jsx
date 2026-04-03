@@ -38,21 +38,47 @@ const Dashboard = () => {
         const attendanceRes = await api.get(`/attendance?date=${selectedDate}`);
         const attendanceData = attendanceRes.data;
         
-        // Defensive check: Ensure attendanceData is an array before filtering
+        // Recent Activity: show arrival-based status
         const active = Array.isArray(attendanceData) ? attendanceData
-          .filter(a => a.status !== 'Absent' && a.check_in)
-          .map(a => ({
-            name: a.name,
-            time: new Date(a.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }),
-            status: (a.status || '').replace('_', ' '),
-            role: 'Employee',
-            variant: (a.status || '') === 'Present' ? 'success' : 'warning'
-          })) : [];
-        
-        setRecentActivity(active.slice(0, 5));
-        
-        // Reset productivity chart until historical data is available
-        setProductivityData([0, 0, 0, 0, 0, 0, 0]);
+          .filter(a => a.check_in && a.check_in !== '-' && !String(a.id).startsWith('no-ref-'))
+          .map(a => {
+            const ds = (a.displayStatus || a.arrival_status || a.status || '').toUpperCase();
+            let variant = 'default';
+            if (ds.includes('ON TIME') || ds === 'COMPLETE') variant = 'success';
+            else if (ds.includes('LATE') && !ds.includes('OVER') && !ds.includes('HALF')) variant = 'warning';
+            else if (ds.includes('OVER LATE') || ds.includes('OVERLATE')) variant = 'danger';
+            else if (ds.includes('HALF')) variant = 'danger';
+            return {
+              name: a.name,
+              time: new Date(a.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }),
+              status: a.displayStatus || a.arrival_status || a.status || 'Present',
+              role: a.role || 'Employee',
+              variant
+            };
+          }) : [];
+
+        setRecentActivity(active.slice(0, 10));
+
+        // Productivity Insights: fetch last 7 days
+        try {
+          const today = new Date(selectedDate);
+          const dayOfWeek = today.getDay(); // 0=Sun
+          const monday = new Date(today);
+          monday.setDate(today.getDate() - ((dayOfWeek + 6) % 7)); // Get Monday
+
+          const weekData = await Promise.all(
+            [0, 1, 2, 3, 4, 5, 6].map(async (offset) => {
+              const d = new Date(monday);
+              d.setDate(monday.getDate() + offset);
+              const dateStr = d.toISOString().split('T')[0];
+              try {
+                const res = await api.get(`/attendance/stats?date=${dateStr}`);
+                return parseInt(res.data?.productivity) || 0;
+              } catch { return 0; }
+            })
+          );
+          setProductivityData(weekData);
+        } catch { setProductivityData([0, 0, 0, 0, 0, 0, 0]); }
  
         setDummyDetails({
           'Total Employees': [
