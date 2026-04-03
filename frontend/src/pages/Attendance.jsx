@@ -320,7 +320,7 @@ const Attendance = () => {
                     {record.checkIn === '-' ? (
                       <span className="text-slate-300 font-medium text-sm">-</span>
                     ) : record.lateMinutes > 0 ? (
-                      <span className="text-orange-600 font-bold text-sm bg-orange-50 px-2.5 py-1 rounded-md">{`${String(Math.floor(record.lateMinutes / 60)).padStart(2,'0')}h ${String(record.lateMinutes % 60).padStart(2,'0')}m`}</span>
+                      <span className="text-orange-600 font-bold text-sm bg-orange-50 px-2.5 py-1 rounded-md">{minsToHMS(record.lateMinutes)}</span>
                     ) : (
                       <span className="text-emerald-600 font-bold text-sm">On Time</span>
                     )}
