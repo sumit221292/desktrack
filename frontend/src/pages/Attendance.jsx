@@ -367,17 +367,17 @@ const Attendance = () => {
                   <td className="px-5 py-3 text-center">
                     {getStatusBadge(record.displayStatus || record.status, record.reason)}
                   </td>
-                  <td className="px-5 py-3 text-right">
-                    <div className="flex flex-col items-end gap-1.5">
-                      <div className="flex items-center gap-2">
-                        <Button variant="ghost" onClick={() => openEdit(record)} className="text-primary-600 font-bold text-xs px-2 py-1 h-auto hover:bg-primary-50">Edit</Button>
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-3">
+                      <Button variant="ghost" onClick={() => openEdit(record)} className="text-primary-600 font-bold text-xs px-2 py-1 h-auto hover:bg-primary-50 shrink-0">Edit</Button>
+                      <div className="flex flex-col items-start gap-1 min-w-0">
                         <Button variant="ghost" onClick={() => openRemarks(record)} className="text-slate-500 font-bold text-xs px-2 py-1 h-auto hover:bg-slate-100">Remarks</Button>
+                        {record.remarks && (
+                          <p className="text-xs text-slate-500 italic max-w-[200px] truncate bg-amber-50 px-2 py-1 rounded-md border border-amber-100" title={record.remarks}>
+                            {record.remarks}
+                          </p>
+                        )}
                       </div>
-                      {record.remarks && (
-                        <p className="text-xs text-slate-500 italic max-w-[220px] truncate bg-amber-50 px-2 py-1 rounded-md border border-amber-100" title={record.remarks}>
-                          {record.remarks}
-                        </p>
-                      )}
                     </div>
                   </td>
                 </tr>
