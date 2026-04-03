@@ -372,7 +372,7 @@ const Attendance = () => {
                       <Button variant="ghost" onClick={() => openEdit(record)} className="text-primary-600 font-bold text-xs px-2 py-1 h-auto hover:bg-primary-50 shrink-0">Edit</Button>
                       <button onClick={() => openRemarks(record)} className="group relative text-left shrink-0" title={record.remarks || 'Add remarks'}>
                         {record.remarks ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-1 rounded-full border border-amber-200 hover:bg-amber-100 transition-colors max-w-[120px]">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-1 rounded-full border border-amber-200 hover:bg-amber-100 transition-colors max-w-[200px]">
                             <span className="truncate">{record.remarks}</span>
                           </span>
                         ) : (
