@@ -354,11 +354,6 @@ const Attendance = () => {
                               : minsToHMS(record.total_break_minutes)
                           }</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="w-[18px] h-[18px] rounded bg-amber-100 flex items-center justify-center text-amber-600 text-[9px] shrink-0">I</span>
-                          <span className="text-slate-500 w-10">Idle</span>
-                          <span className="text-amber-700">{minsToHMS(Math.max(0, (record.gross_minutes || 0) - (record.net_work_minutes || 0) - (record.total_break_minutes || 0)))}</span>
-                        </div>
                      </div>
                   </td>
                   <td className="px-5 py-3 text-center">
