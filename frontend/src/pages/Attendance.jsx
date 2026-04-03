@@ -317,7 +317,9 @@ const Attendance = () => {
                   </td>
                   <td className="px-5 py-3 font-bold text-primary-700 text-sm">{record.expectedCheckout && record.expectedCheckout !== '-' ? new Date(record.expectedCheckout).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : '-'}</td>
                   <td className="px-5 py-3">
-                    {record.lateMinutes > 0 ? (
+                    {record.checkIn === '-' ? (
+                      <span className="text-slate-300 font-medium text-sm">-</span>
+                    ) : record.lateMinutes > 0 ? (
                       <span className="text-orange-600 font-bold text-sm bg-orange-50 px-2.5 py-1 rounded-md">{`${String(Math.floor(record.lateMinutes / 60)).padStart(2,'0')}h ${String(record.lateMinutes % 60).padStart(2,'0')}m`}</span>
                     ) : (
                       <span className="text-emerald-600 font-bold text-sm">On Time</span>
