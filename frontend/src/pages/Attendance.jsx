@@ -374,8 +374,8 @@ const Attendance = () => {
                         <Button variant="ghost" onClick={() => openRemarks(record)} className="text-slate-500 font-bold text-xs px-2 py-1 h-auto hover:bg-slate-100">Remarks</Button>
                       </div>
                       {record.remarks && (
-                        <p className="text-[10px] text-slate-400 italic max-w-[180px] truncate" title={record.remarks}>
-                          "{record.remarks}"
+                        <p className="text-xs text-slate-500 italic max-w-[220px] truncate bg-amber-50 px-2 py-1 rounded-md border border-amber-100" title={record.remarks}>
+                          {record.remarks}
                         </p>
                       )}
                     </div>
