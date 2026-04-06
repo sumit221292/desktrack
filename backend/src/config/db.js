@@ -79,6 +79,7 @@ const memoryDB = {
       department_id: 1,
       salary_info: '{}',
       joining_date: '2024-01-01',
+      date_of_birth: '1995-04-15',
       role: 'SUPER_ADMIN',
       status: 'ACTIVE',
       shift_id: 1
@@ -434,6 +435,7 @@ const db = {
         }
         // [INSERT] Employees
         else if (q.includes('insert into employees')) {
+          const hasDoB = q.includes('date_of_birth');
           const newEmp = {
             id: memoryDB.employees.length > 0 ? Math.max(...memoryDB.employees.map(e => e.id)) + 1 : 1,
             company_id: params[0],
@@ -445,9 +447,10 @@ const db = {
             department_id: params[6],
             salary_info: typeof params[7] === 'string' ? params[7] : JSON.stringify(params[7] || {}),
             joining_date: params[8],
-            shift_id: params[9],
-            role: params[10] || 'EMPLOYEE',
-            status: params[11] || 'ACTIVE',
+            date_of_birth: hasDoB ? (params[9] || null) : null,
+            shift_id: hasDoB ? params[10] : params[9],
+            role: (hasDoB ? params[11] : params[10]) || 'EMPLOYEE',
+            status: (hasDoB ? params[12] : params[11]) || 'ACTIVE',
             created_at: new Date()
           };
           memoryDB.employees.push(newEmp);
@@ -457,7 +460,8 @@ const db = {
         }
         // [UPDATE] Employees
         else if (q.includes('update employees set')) {
-          const id = params[11];
+          const hasDoB = q.includes('date_of_birth');
+          const id = hasDoB ? params[12] : params[11];
           const index = memoryDB.employees.findIndex(e => e.id == id);
           if (index !== -1) {
             memoryDB.employees[index] = {
@@ -470,9 +474,10 @@ const db = {
               department_id: params[5],
               salary_info: typeof params[6] === 'string' ? params[6] : JSON.stringify(params[6] || {}),
               joining_date: params[7],
-              shift_id: params[8],
-              status: params[9],
-              role: params[10]
+              date_of_birth: hasDoB ? (params[8] || null) : memoryDB.employees[index].date_of_birth,
+              shift_id: hasDoB ? params[9] : params[8],
+              status: hasDoB ? params[10] : params[9],
+              role: hasDoB ? params[11] : params[10]
             };
             saveToDisk();
             resultRows = [memoryDB.employees[index]];
@@ -1226,6 +1231,7 @@ async function runMigrations() {
           department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL,
           salary_info JSONB DEFAULT '{}',
           joining_date DATE,
+          date_of_birth DATE,
           shift_id INTEGER REFERENCES shifts(id) ON DELETE SET NULL,
           role VARCHAR(50) DEFAULT 'EMPLOYEE',
           status VARCHAR(20) DEFAULT 'ACTIVE',
@@ -1425,6 +1431,7 @@ async function runMigrations() {
       // employees table — add shift_id direct reference
       try {
         await pool.query('ALTER TABLE employees ADD COLUMN IF NOT EXISTS shift_id INTEGER');
+        await pool.query('ALTER TABLE employees ADD COLUMN IF NOT EXISTS date_of_birth DATE');
       } catch (e) { /* already exists */ }
 
       // salary_structures — add deductions_json for custom deductions

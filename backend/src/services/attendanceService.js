@@ -862,15 +862,46 @@ const getMonthlyAttendance = async (companyId, month, year) => {
     }
   }
 
+  // Build special events (birthdays & joining anniversaries)
+  const specialEvents = {};
+  for (const emp of employees.rows) {
+    const empName = `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown';
+    // Birthday
+    if (emp.date_of_birth) {
+      const dob = String(emp.date_of_birth).split('T')[0]; // YYYY-MM-DD
+      const dobMD = dob.slice(5); // MM-DD
+      const matchDate = `${year}-${dobMD}`;
+      if (days.includes(matchDate)) {
+        if (!specialEvents[matchDate]) specialEvents[matchDate] = [];
+        specialEvents[matchDate].push({ type: 'birthday', empId: emp.id, name: empName });
+      }
+    }
+    // Joining anniversary
+    if (emp.joining_date) {
+      const jd = String(emp.joining_date).split('T')[0];
+      const jdMD = jd.slice(5);
+      const jdYear = parseInt(jd.slice(0, 4));
+      const matchDate = `${year}-${jdMD}`;
+      if (days.includes(matchDate) && jdYear < year) {
+        const years = year - jdYear;
+        if (!specialEvents[matchDate]) specialEvents[matchDate] = [];
+        specialEvents[matchDate].push({ type: 'anniversary', empId: emp.id, name: empName, years });
+      }
+    }
+  }
+
   return {
     employees: employees.rows.map(e => ({
       id: e.id,
       name: `${e.first_name || ''} ${e.last_name || ''}`.trim() || 'Unknown',
       email: e.email,
-      department: e.department
+      department: e.department,
+      joining_date: e.joining_date || null,
+      date_of_birth: e.date_of_birth || null
     })),
     days,
     records,
+    specialEvents,
     month,
     year
   };

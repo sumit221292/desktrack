@@ -21,15 +21,15 @@ const getEmployees = async (req, res) => {
 const createEmployee = async (req, res) => {
   const companyId = req.tenantId;
   const {
-    first_name, last_name, email, employee_code, designation_id, department_id, salary_info, joining_date, shift_id, role, status,
+    first_name, last_name, email, employee_code, designation_id, department_id, salary_info, joining_date, date_of_birth, shift_id, role, status,
     custom_field_values
   } = req.body;
 
   try {
     const result = await query(
-      `INSERT INTO employees (company_id, first_name, last_name, email, employee_code, designation_id, department_id, salary_info, joining_date, shift_id, role, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
-      [companyId, first_name, last_name, email, employee_code, designation_id, department_id, salary_info || '{}', joining_date, shift_id, role || 'EMPLOYEE', status || 'ACTIVE']
+      `INSERT INTO employees (company_id, first_name, last_name, email, employee_code, designation_id, department_id, salary_info, joining_date, date_of_birth, shift_id, role, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+      [companyId, first_name, last_name, email, employee_code, designation_id, department_id, salary_info || '{}', joining_date, date_of_birth || null, shift_id, role || 'EMPLOYEE', status || 'ACTIVE']
     );
 
     const newEmp = result.rows[0];
@@ -96,16 +96,16 @@ const getEmployeeById = async (req, res) => {
 const updateEmployee = async (req, res) => {
   const companyId = req.tenantId;
   const { id } = req.params;
-  const { first_name, last_name, email, employee_code, designation_id, department_id, salary_info, joining_date, shift_id, status, role, custom_field_values } = req.body;
+  const { first_name, last_name, email, employee_code, designation_id, department_id, salary_info, joining_date, date_of_birth, shift_id, status, role, custom_field_values } = req.body;
 
   try {
     const result = await query(
       `UPDATE employees SET
         first_name = $1, last_name = $2, email = $3, employee_code = $4,
         designation_id = $5, department_id = $6, salary_info = $7,
-        joining_date = $8, shift_id = $9, status = $10, role = $11
-       WHERE id = $12 AND company_id = $13 RETURNING *`,
-      [first_name, last_name, email, employee_code, designation_id, department_id, salary_info || '{}', joining_date, shift_id, status, role, id, companyId]
+        joining_date = $8, date_of_birth = $9, shift_id = $10, status = $11, role = $12
+       WHERE id = $13 AND company_id = $14 RETURNING *`,
+      [first_name, last_name, email, employee_code, designation_id, department_id, salary_info || '{}', joining_date, date_of_birth || null, shift_id, status, role, id, companyId]
     );
 
     if (result.rows.length === 0) {
