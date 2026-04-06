@@ -380,16 +380,23 @@ const Dashboard = () => {
               0%, 100% { background-color: rgb(37 99 235); box-shadow: 0 0 0 0px rgba(37, 99, 235, 0.7); }
               50% { background-color: rgb(29 78 216); box-shadow: 0 0 15px 5px rgba(37, 99, 235, 0.4); }
             }
+            @keyframes spin-clock {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
           `}} />
-          <button 
+          <button
             onClick={handleCheckInOut}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm shadow-lg transition-all ${
-              isCheckedIn 
-                ? 'bg-alert-500 text-white hover:bg-alert-600' 
+              isCheckedIn
+                ? 'bg-alert-500 text-white hover:bg-alert-600'
                 : 'bg-primary-600 text-white hover:bg-primary-700 animate-[intense-blink_1.5s_ease-in-out_infinite] ring-2 ring-primary-500 ring-offset-2 ring-offset-slate-50'
             }`}
           >
-            <Clock size={16} />
+            {isCheckedIn
+              ? <Clock size={16} style={{ animation: 'spin-clock 3s linear infinite' }} />
+              : <Clock size={16} />
+            }
             {isCheckedIn ? 'Check Out Now' : 'Check In Now'}
           </button>
 
