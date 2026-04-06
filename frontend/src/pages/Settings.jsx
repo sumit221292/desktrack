@@ -224,7 +224,9 @@ const Settings = () => {
     setShowOptionsModal(true);
     setLoadingOptions(true);
 
-    const apiPath = getOptionApiPath(field.field_id);
+    const fid = field.field_id || field.id;
+    const apiPath = getOptionApiPath(fid);
+    console.log('[Settings] Opening options modal for:', fid, 'apiPath:', apiPath);
     if (apiPath) {
       try {
         const res = await api.get(apiPath);
@@ -233,7 +235,7 @@ const Settings = () => {
         console.error('Error loading options:', err);
         setOptionsList([]);
       }
-    } else if (field.field_id === 'role') {
+    } else if (fid === 'role') {
       let opts = field.options || [];
       if (typeof opts === 'string') { try { opts = JSON.parse(opts); } catch { opts = []; } }
       setOptionsList(opts.map((o, i) => ({ id: i + 1, name: typeof o === 'object' ? o.label : o, value: typeof o === 'object' ? o.value : o })));
@@ -247,21 +249,23 @@ const Settings = () => {
 
   const handleAddOption = async () => {
     if (!newOptionName.trim()) return;
-    const apiPath = getOptionApiPath(managingField.field_id);
+    const fid = managingField.field_id || managingField.id;
+    const apiPath = getOptionApiPath(fid);
 
     if (apiPath) {
       try {
-        await api.post(apiPath, { name: newOptionName.trim() });
+        const addRes = await api.post(apiPath, { name: newOptionName.trim() });
+        console.log('[Settings] Added option:', addRes.data);
         const res = await api.get(apiPath);
         setOptionsList(res.data.map(d => ({ id: d.id, name: d.name })));
         setNewOptionName('');
-        // Refresh custom fields so dropdown options are updated
         const cfRes = await api.get('/custom-fields?module=employees');
         setCustomFields(cfRes.data);
       } catch (err) {
+        console.error('[Settings] Add option error:', err);
         alert(err.response?.data?.error || 'Failed to add option');
       }
-    } else if (managingField.field_id === 'role') {
+    } else if (fid === 'role') {
       const updated = [...optionsList, { id: Date.now(), name: newOptionName.trim(), value: newOptionName.trim().toUpperCase().replace(/\s+/g, '_') }];
       setOptionsList(updated);
       setNewOptionName('');
@@ -271,20 +275,23 @@ const Settings = () => {
 
   const handleUpdateOption = async (opt) => {
     if (!editOptionName.trim()) return;
-    const apiPath = getOptionApiPath(managingField.field_id);
+    const fid = managingField.field_id || managingField.id;
+    const apiPath = getOptionApiPath(fid);
 
     if (apiPath) {
       try {
-        await api.put(`${apiPath}/${opt.id}`, { name: editOptionName.trim() });
+        const updRes = await api.put(`${apiPath}/${opt.id}`, { name: editOptionName.trim() });
+        console.log('[Settings] Updated option:', updRes.data);
         const res = await api.get(apiPath);
         setOptionsList(res.data.map(d => ({ id: d.id, name: d.name })));
         setEditingOption(null);
         const cfRes = await api.get('/custom-fields?module=employees');
         setCustomFields(cfRes.data);
       } catch (err) {
+        console.error('[Settings] Update option error:', err);
         alert(err.response?.data?.error || 'Failed to update option');
       }
-    } else if (managingField.field_id === 'role') {
+    } else if (fid === 'role') {
       const updated = optionsList.map(o => o.id === opt.id ? { ...o, name: editOptionName.trim(), value: editOptionName.trim().toUpperCase().replace(/\s+/g, '_') } : o);
       setOptionsList(updated);
       setEditingOption(null);
@@ -294,7 +301,8 @@ const Settings = () => {
 
   const handleDeleteOption = async (opt) => {
     if (!window.confirm(`Delete "${opt.name}"? Existing records using this option may be affected.`)) return;
-    const apiPath = getOptionApiPath(managingField.field_id);
+    const fid = managingField.field_id || managingField.id;
+    const apiPath = getOptionApiPath(fid);
 
     if (apiPath) {
       try {
@@ -306,7 +314,7 @@ const Settings = () => {
       } catch (err) {
         alert('Failed to delete option');
       }
-    } else if (managingField.field_id === 'role') {
+    } else if (fid === 'role') {
       const updated = optionsList.filter(o => o.id !== opt.id);
       setOptionsList(updated);
       await saveRoleOptions(updated);
