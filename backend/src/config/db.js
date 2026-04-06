@@ -1489,11 +1489,11 @@ async function runMigrations() {
             [co.id, knownIds]
           ).catch(() => {});
 
-          // Also remove orphan fields with NULL field_id that match default names
+          // Also remove ANY fields whose field_name matches defaults (catches custom_department, etc.)
           const knownNames = defaultFields.map(f => f.field_name);
           await pool.query(
-            `DELETE FROM custom_fields WHERE company_id = $1 AND module_name = 'employees' AND (field_id IS NULL OR field_id = '') AND field_name = ANY($2::text[])`,
-            [co.id, knownNames]
+            `DELETE FROM custom_fields WHERE company_id = $1 AND module_name = 'employees' AND field_name = ANY($2::text[]) AND field_id NOT IN (SELECT unnest($3::text[]))`,
+            [co.id, knownNames, knownIds]
           ).catch(() => {});
 
           // 2. Insert all default fields fresh
