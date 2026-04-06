@@ -8,6 +8,27 @@ import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { motion } from 'framer-motion';
 
+// Live work timer for dashboard
+const DashboardLiveTimer = ({ checkIn, breakMins = 0, isLive, netMins }) => {
+  const [display, setDisplay] = useState('');
+  useEffect(() => {
+    if (!isLive) {
+      const m = netMins || 0;
+      setDisplay(`${Math.floor(m / 60)}h ${String(Math.floor(m % 60)).padStart(2, '0')}m`);
+      return;
+    }
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - new Date(checkIn).getTime()) / 60000) - (breakMins || 0);
+      const m = Math.max(0, elapsed);
+      setDisplay(`${Math.floor(m / 60)}h ${String(Math.floor(m % 60)).padStart(2, '0')}m`);
+    };
+    tick();
+    const id = setInterval(tick, 30000);
+    return () => clearInterval(id);
+  }, [checkIn, breakMins, isLive, netMins]);
+  return <>{display}</>;
+};
+
 // Celebration overlay for birthdays/anniversaries
 const CelebrationOverlay = ({ celebrations, onDismiss }) => {
   if (!celebrations || celebrations.length === 0) return null;
@@ -121,6 +142,7 @@ const Dashboard = () => {
   const [productivityData, setProductivityData] = useState([0, 0, 0, 0, 0, 0, 0]);
   const [celebrations, setCelebrations] = useState([]);
   const [showCelebration, setShowCelebration] = useState(true);
+  const [myAttendance, setMyAttendance] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -161,6 +183,12 @@ const Dashboard = () => {
           }) : [];
 
         setRecentActivity(active.slice(0, 10));
+
+        // Current user's attendance for the status bar
+        if (user && Array.isArray(attendanceData)) {
+          const myRec = attendanceData.find(a => a.email === user.email && a.check_in && a.check_in !== '-');
+          setMyAttendance(myRec || null);
+        }
 
         // Productivity Insights: fetch last 7 days
         try {
@@ -262,6 +290,73 @@ const Dashboard = () => {
           <h2 className="text-3xl font-bold text-slate-900 mb-1 font-display tracking-tight">Welcome Back!</h2>
           <p className="text-slate-500 font-medium text-sm">Here's what's happening at your company today.</p>
         </div>
+
+        {/* Today's Attendance Status Bar */}
+        {myAttendance && (
+          <div className="flex items-center gap-4 bg-white border border-slate-200 rounded-xl px-5 py-3 shadow-sm">
+            {/* Check In */}
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
+                <Clock size={15} className="text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Check In</p>
+                <p className="text-sm font-bold text-emerald-700">
+                  {new Date(myAttendance.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}
+                </p>
+              </div>
+            </div>
+
+            <div className="w-px h-10 bg-slate-200" />
+
+            {/* Work Hours - Live */}
+            <div className="flex items-center gap-2">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${myAttendance.is_checked_in ? 'bg-blue-100' : 'bg-slate-100'}`}>
+                <TrendingUp size={15} className={myAttendance.is_checked_in ? 'text-blue-600' : 'text-slate-500'} />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Work Hours</p>
+                <p className={`text-sm font-bold ${myAttendance.is_checked_in ? 'text-blue-700' : 'text-slate-700'}`}>
+                  <DashboardLiveTimer checkIn={myAttendance.check_in} breakMins={myAttendance.total_break_minutes || 0} isLive={myAttendance.is_checked_in} netMins={myAttendance.net_work_minutes} />
+                </p>
+              </div>
+            </div>
+
+            <div className="w-px h-10 bg-slate-200" />
+
+            {/* Break */}
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                <span className="text-amber-600 text-xs font-bold">B</span>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Break</p>
+                <p className="text-sm font-bold text-amber-700">
+                  {Math.floor((myAttendance.total_break_minutes || 0) / 60)}h {String(Math.floor((myAttendance.total_break_minutes || 0) % 60)).padStart(2, '0')}m
+                </p>
+              </div>
+            </div>
+
+            <div className="w-px h-10 bg-slate-200" />
+
+            {/* Check Out / Status */}
+            <div className="flex items-center gap-2">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${myAttendance.check_out ? 'bg-red-100' : 'bg-blue-50'}`}>
+                <CheckCircle size={15} className={myAttendance.check_out ? 'text-red-500' : 'text-blue-400'} />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Check Out</p>
+                <p className={`text-sm font-bold ${myAttendance.check_out ? 'text-red-600' : 'text-blue-500'}`}>
+                  {myAttendance.check_out
+                    ? new Date(myAttendance.check_out).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })
+                    : <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />Working</span>
+                  }
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col sm:flex-row items-center gap-3">
           <style dangerouslySetInnerHTML={{ __html: `
             @keyframes intense-blink {
