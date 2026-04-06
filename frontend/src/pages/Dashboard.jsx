@@ -8,16 +8,119 @@ import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { motion } from 'framer-motion';
 
+// Celebration overlay for birthdays/anniversaries
+const CelebrationOverlay = ({ celebrations, onDismiss }) => {
+  if (!celebrations || celebrations.length === 0) return null;
+
+  return (
+    <div className="fixed inset-0 z-[200] pointer-events-none">
+      {/* Floating balloons */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes floatUp {
+          0% { transform: translateY(100vh) rotate(0deg); opacity: 1; }
+          70% { opacity: 1; }
+          100% { transform: translateY(-120px) rotate(15deg); opacity: 0; }
+        }
+        @keyframes floatUpSlow {
+          0% { transform: translateY(100vh) rotate(0deg); opacity: 0.9; }
+          60% { opacity: 0.9; }
+          100% { transform: translateY(-120px) rotate(-10deg); opacity: 0; }
+        }
+        @keyframes confettiFall {
+          0% { transform: translateY(-10px) rotate(0deg); opacity: 1; }
+          100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        }
+        @keyframes bounceIn {
+          0% { transform: scale(0) translateY(40px); opacity: 0; }
+          50% { transform: scale(1.1) translateY(-10px); }
+          100% { transform: scale(1) translateY(0); opacity: 1; }
+        }
+        @keyframes cakeWiggle {
+          0%, 100% { transform: rotate(0deg); }
+          25% { transform: rotate(-5deg); }
+          75% { transform: rotate(5deg); }
+        }
+        .balloon { animation: floatUp linear forwards; }
+        .balloon-slow { animation: floatUpSlow linear forwards; }
+        .confetti { animation: confettiFall linear forwards; }
+        .celebration-card { animation: bounceIn 0.6s ease-out forwards; }
+        .cake-wiggle { animation: cakeWiggle 0.5s ease-in-out infinite; }
+      `}} />
+
+      {/* Balloons */}
+      {Array.from({ length: 16 }, (_, i) => {
+        const colors = ['#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#f97316'];
+        const left = Math.random() * 95;
+        const dur = 4 + Math.random() * 5;
+        const delay = Math.random() * 3;
+        const size = 28 + Math.random() * 22;
+        return (
+          <div key={`b${i}`} className={i % 2 === 0 ? 'balloon' : 'balloon-slow'}
+            style={{ position: 'fixed', left: `${left}%`, bottom: 0, zIndex: 201, animationDuration: `${dur}s`, animationDelay: `${delay}s`, fontSize: `${size}px` }}>
+            🎈
+          </div>
+        );
+      })}
+
+      {/* Confetti */}
+      {Array.from({ length: 30 }, (_, i) => {
+        const colors = ['#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899'];
+        const left = Math.random() * 100;
+        const dur = 3 + Math.random() * 4;
+        const delay = Math.random() * 2;
+        const w = 6 + Math.random() * 8;
+        return (
+          <div key={`c${i}`} className="confetti"
+            style={{ position: 'fixed', left: `${left}%`, top: '-10px', zIndex: 201, width: `${w}px`, height: `${w * 0.4}px`, backgroundColor: colors[i % colors.length], borderRadius: '2px', animationDuration: `${dur}s`, animationDelay: `${delay}s` }} />
+        );
+      })}
+
+      {/* Center celebration banner */}
+      <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[202] pointer-events-auto max-w-lg w-full px-4">
+        <div className="celebration-card bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+          <div className="h-1.5 bg-gradient-to-r from-pink-500 via-purple-500 to-blue-500" />
+          <div className="p-5">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-4xl cake-wiggle">🎂</span>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">Today's Celebrations!</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Let's make it special</p>
+                </div>
+              </div>
+              <button onClick={onDismiss} className="text-slate-400 hover:text-slate-600 text-sm font-bold px-2 py-1 hover:bg-slate-100 rounded-lg transition-colors">✕</button>
+            </div>
+            <div className="mt-4 space-y-2">
+              {celebrations.map((c, i) => (
+                <div key={i} className={`flex items-center gap-3 px-4 py-3 rounded-xl ${c.type === 'birthday' ? 'bg-pink-50 border border-pink-100' : 'bg-indigo-50 border border-indigo-100'}`}>
+                  <span className="text-2xl">{c.type === 'birthday' ? '🎂' : '🎉'}</span>
+                  <div className="flex-1">
+                    <p className={`font-bold text-sm ${c.type === 'birthday' ? 'text-pink-800' : 'text-indigo-800'}`}>{c.name}</p>
+                    <p className={`text-xs ${c.type === 'birthday' ? 'text-pink-500' : 'text-indigo-500'}`}>
+                      {c.type === 'birthday' ? 'Happy Birthday! 🥳' : `🏆 ${c.years} Year${c.years > 1 ? 's' : ''} Work Anniversary!`}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const Dashboard = () => {
   const navigate = useNavigate();
-  // Fetch real data from backend
   const { user, isCheckedIn, toggleCheckIn, selectedDate, setSelectedDate } = useAuth();
-  
+
   const [selectedKPI, setSelectedKPI] = useState(null);
   const [stats, setStats] = useState([]);
   const [dummyDetails, setDummyDetails] = useState({});
   const [recentActivity, setRecentActivity] = useState([]);
   const [productivityData, setProductivityData] = useState([0, 0, 0, 0, 0, 0, 0]);
+  const [celebrations, setCelebrations] = useState([]);
+  const [showCelebration, setShowCelebration] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -95,6 +198,31 @@ const Dashboard = () => {
           ]
         });
 
+        // Fetch celebrations (birthdays + anniversaries for today)
+        try {
+          const empRes = await api.get('/employees');
+          const emps = empRes.data || [];
+          const todayMD = new Date().toISOString().slice(5, 10); // MM-DD
+          const thisYear = new Date().getFullYear();
+          const celebs = [];
+          emps.forEach(e => {
+            const name = `${e.first_name || ''} ${e.last_name || ''}`.trim();
+            if (e.date_of_birth) {
+              const dobMD = String(e.date_of_birth).split('T')[0].slice(5);
+              if (dobMD === todayMD) celebs.push({ type: 'birthday', name });
+            }
+            if (e.joining_date) {
+              const jd = String(e.joining_date).split('T')[0];
+              const jdMD = jd.slice(5);
+              const jdYear = parseInt(jd.slice(0, 4));
+              if (jdMD === todayMD && jdYear < thisYear) {
+                celebs.push({ type: 'anniversary', name, years: thisYear - jdYear });
+              }
+            }
+          });
+          setCelebrations(celebs);
+        } catch (e) { /* ignore */ }
+
       } catch (err) {
         console.error('Dashboard Fetch Error:', err);
       }
@@ -124,6 +252,11 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-8 animate-fade-in pb-12">
+      {/* Birthday / Anniversary Celebration */}
+      {showCelebration && celebrations.length > 0 && (
+        <CelebrationOverlay celebrations={celebrations} onDismiss={() => setShowCelebration(false)} />
+      )}
+
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-3xl font-bold text-slate-900 mb-1 font-display tracking-tight">Welcome Back!</h2>
