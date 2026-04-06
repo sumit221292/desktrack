@@ -339,6 +339,23 @@ const Dashboard = () => {
 
             <div className="w-px h-10 bg-slate-200" />
 
+            {/* Expected Out */}
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
+                <Clock size={15} className="text-purple-600" />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Expected Out</p>
+                <p className="text-sm font-bold text-purple-700">
+                  {myAttendance.expectedCheckout && myAttendance.expectedCheckout !== '-'
+                    ? new Date(myAttendance.expectedCheckout).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })
+                    : '-'}
+                </p>
+              </div>
+            </div>
+
+            <div className="w-px h-10 bg-slate-200" />
+
             {/* Check Out / Status */}
             <div className="flex items-center gap-2">
               <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${myAttendance.check_out ? 'bg-red-100' : 'bg-blue-50'}`}>
