@@ -330,7 +330,7 @@ const db = {
         // [UPDATE] Shifts
         else if (q.includes('update shifts')) {
           // Params: name=$1, start=$2, end=$3, hours=$4, grace=$5, late_s=$6, late_e=$7, overlate=$8, halfday=$9, lunch=$10, tea=$11, max_break=$12, id=$13, company=$14
-          const id = params[12] || params[9]; // new layout: $13=id or old layout: $10=id
+          const id = params[12]; // $13=id (0-indexed: params[12])
           const index = memoryDB.shifts.findIndex(s => s.id == id);
           if (index !== -1) {
             memoryDB.shifts[index] = {

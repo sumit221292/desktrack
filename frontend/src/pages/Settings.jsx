@@ -673,7 +673,7 @@ const Settings = () => {
                         </td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex items-center justify-end space-x-2">
-                            <button onClick={() => { setEditingShift(shift); setShiftFormData(shift); setShowShiftModal(true); }} className="p-1.5 text-slate-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors" title="Edit Shift">
+                            <button onClick={() => { setEditingShift(shift); setShiftFormData({ lunch_allowed_minutes: 45, tea_allowed_minutes: 15, max_break_minutes: 70, ...shift }); setShowShiftModal(true); }} className="p-1.5 text-slate-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors" title="Edit Shift">
                               <Edit size={16} />
                             </button>
                             <button onClick={async () => {
