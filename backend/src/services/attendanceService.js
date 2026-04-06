@@ -645,9 +645,12 @@ const getDailyAttendance = async (companyId, dateStr) => {
 
       const { daily_attendance } = calculateAttendance({ ...shift, employee_id: emp.id, timezone: companyTz }, checkIn, checkOut, empEvents, empSessions);
 
-      // Expected checkout = check-in + shift total working hours
+      // Expected checkout = check-in + shift total working hours + excess break time
       const shiftHrs = parseFloat(shift?.total_working_hours || 9);
-      const expectedOutISO = new Date(checkIn.getTime() + shiftHrs * 60 * 60 * 1000);
+      const maxBreakMins = shift?.max_break_minutes || 70;
+      const breakMins = daily_attendance.total_break_minutes || 0;
+      const excessBreakMins = Math.max(0, breakMins - maxBreakMins);
+      const expectedOutISO = new Date(checkIn.getTime() + (shiftHrs * 60 + excessBreakMins) * 60 * 1000);
 
       // Late minutes: diff between check_in and shift_start_time (IST)
       let lateMinutes = 0;
@@ -667,13 +670,22 @@ const getDailyAttendance = async (companyId, dateStr) => {
       else if (arrStatus === 'overlate') displayStatus = 'OVER LATE';
       else if (arrStatus === 'halfday') displayStatus = 'HALF DAY';
 
+      // Missed checkout: if no checkout and expected out time has already passed → auto HALF DAY/ABSENT
+      const shiftMins = shiftHrs * 60;
+      if (!checkOut && new Date() > expectedOutISO) {
+        const workedMins = daily_attendance.net_work_minutes || 0;
+        if (workedMins >= shiftMins / 2) {
+          displayStatus = 'HALF DAY';
+        } else {
+          displayStatus = 'ABSENT';
+        }
+      }
+
       // Shortfall
-      const shiftMins = (parseFloat(shift?.total_working_hours || 9)) * 60;
       const shortfallMinutes = daily_attendance.net_work_minutes < shiftMins ? Math.floor(shiftMins - daily_attendance.net_work_minutes) : 0;
 
       // Active / Break / Idle times
       const netMins = daily_attendance.net_work_minutes || 0;
-      const breakMins = daily_attendance.total_break_minutes || 0;
       const grossMins = daily_attendance.gross_minutes || 0;
       const idleMins = Math.max(0, grossMins - netMins - breakMins);
 
@@ -695,7 +707,9 @@ const getDailyAttendance = async (companyId, dateStr) => {
         shortfallMinutes: isCheckedIn ? 0 : shortfallMinutes,
         activeTime: fmtTime(netMins),
         breakTime: fmtTime(breakMins),
-        idleTime: fmtTime(idleMins)
+        idleTime: fmtTime(idleMins),
+        breakExceeded: excessBreakMins > 0,
+        excessBreakMins
       };
     }
 

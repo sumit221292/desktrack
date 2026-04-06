@@ -353,14 +353,15 @@ const Attendance = () => {
                           <span className="text-emerald-700">{record.is_checked_in ? <LiveTimer checkInTime={record.check_in} breakMins={record.total_break_minutes} /> : minsToHMS(record.net_work_minutes)}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="w-[18px] h-[18px] rounded bg-blue-100 flex items-center justify-center text-blue-600 text-[9px] shrink-0">B</span>
+                          <span className={`w-[18px] h-[18px] rounded flex items-center justify-center text-[9px] shrink-0 ${record.breakExceeded ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>B</span>
                           <span className="text-slate-500 w-10">Break</span>
-                          <span className="text-blue-700">{
+                          <span className={record.breakExceeded ? 'text-red-600 font-bold' : 'text-blue-700'} title={record.breakExceeded ? `Exceeded by ${record.excessBreakMins}m — expected out extended` : undefined}>{
                             // Live break timer: ticks after checkout until expected out
                             !record.is_checked_in && record.check_out && record.check_out !== '-' && record.expectedCheckout && record.expectedCheckout !== '-' && new Date(record.check_out) < new Date(record.expectedCheckout)
                               ? <LiveBreakTimer checkOutTime={record.check_out} baseMins={record.total_break_minutes} expectedOut={record.expectedCheckout} />
                               : minsToHMS(record.total_break_minutes)
                           }</span>
+                          {record.breakExceeded && <span className="text-[9px] text-red-500 font-bold">+{record.excessBreakMins}m</span>}
                         </div>
                      </div>
                   </td>

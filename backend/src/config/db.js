@@ -39,9 +39,12 @@ const memoryDB = {
       late_start_time: '10:16',
       late_end_time: '10:59',
       overlate_start_time: '11:00',
-      halfday_start_time: '12:30', 
-      company_id: 1, 
-      created_at: new Date() 
+      halfday_start_time: '12:30',
+      lunch_allowed_minutes: 45,
+      tea_allowed_minutes: 15,
+      max_break_minutes: 70,
+      company_id: 1,
+      created_at: new Date()
     }
   ],
   users: [
@@ -316,6 +319,7 @@ const db = {
             halfday_start_time: params[9],
             lunch_allowed_minutes: parseInt(params[10]) || 45,
             tea_allowed_minutes: parseInt(params[11]) || 15,
+            max_break_minutes: parseInt(params[12]) || 70,
             created_at: new Date()
           };
           memoryDB.shifts.push(newShift);
@@ -1169,6 +1173,7 @@ async function runMigrations() {
           halfday_start_time TIME,
           lunch_allowed_minutes INTEGER DEFAULT 45,
           tea_allowed_minutes INTEGER DEFAULT 15,
+          max_break_minutes INTEGER DEFAULT 70,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -1413,10 +1418,11 @@ async function runMigrations() {
         await pool.query('ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS deductions_json JSONB');
       } catch (e) { /* already exists */ }
 
-      // shifts — add lunch/tea allowed minutes
+      // shifts — add lunch/tea allowed minutes and max break
       const shiftAlters = [
         'ALTER TABLE shifts ADD COLUMN IF NOT EXISTS lunch_allowed_minutes INTEGER DEFAULT 45',
         'ALTER TABLE shifts ADD COLUMN IF NOT EXISTS tea_allowed_minutes INTEGER DEFAULT 15',
+        'ALTER TABLE shifts ADD COLUMN IF NOT EXISTS max_break_minutes INTEGER DEFAULT 70',
       ];
       for (const sql of shiftAlters) {
         try { await pool.query(sql); } catch (e) { /* already exists */ }
