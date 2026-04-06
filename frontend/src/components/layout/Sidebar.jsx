@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { 
-  LayoutDashboard, Users, Clock, Calendar, 
+import {
+  LayoutDashboard, Users, Clock, Calendar, CalendarDays,
   CreditCard, FileBarChart, Settings, LogOut,
   ChevronLeft, ChevronRight, TrendingUp
 } from 'lucide-react';
@@ -17,6 +17,7 @@ const Sidebar = () => {
     { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
     { icon: Users, label: 'Employees', path: '/employees', module: 'employees' },
     { icon: Clock, label: 'Attendance', path: '/attendance', module: 'attendance' },
+    { icon: CalendarDays, label: 'Att. Calendar', path: '/attendance-calendar', module: 'attendance' },
     { icon: Calendar, label: 'Leaves', path: '/leaves', module: 'leaves' },
     { icon: CreditCard, label: 'Payroll', path: '/payroll', module: 'payroll' },
     { icon: TrendingUp, label: 'Performance', path: '/performance', module: 'performance' },

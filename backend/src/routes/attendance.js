@@ -18,6 +18,19 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Get monthly attendance for calendar view
+router.get('/monthly', async (req, res) => {
+  try {
+    const { month, year } = req.query;
+    const m = parseInt(month) || (new Date().getMonth() + 1);
+    const y = parseInt(year) || new Date().getFullYear();
+    const result = await attendanceService.getMonthlyAttendance(req.tenantId || 1, m, y);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Get dashboard stats
 router.get('/stats', async (req, res) => {
   try {

@@ -770,6 +770,112 @@ const getStats = async (companyId, dateStr) => {
   };
 };
 
+/**
+ * Get monthly attendance data for calendar view
+ * Returns { employees: [...], days: [...dates], records: { empId: { date: {status, ...} } } }
+ */
+const getMonthlyAttendance = async (companyId, month, year) => {
+  const employees = await query('SELECT * FROM employees WHERE company_id = $1', [companyId]);
+
+  // Build date range for the month
+  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+  // Get all attendance records for the month
+  const attendance = await query(
+    `SELECT * FROM attendance WHERE company_id = $1 AND check_in::date >= $2::date AND check_in::date <= $3::date`,
+    [companyId, startDate, endDate]
+  );
+
+  // Get shift info
+  const shifts = await query('SELECT * FROM shifts WHERE company_id = $1', [companyId]);
+  const shift = shifts.rows[0];
+  const companyTz = await getCompanyTimezone(companyId);
+  const brkCfg = await getBreakConfig(companyId);
+
+  // Build days array
+  const days = [];
+  for (let d = 1; d <= lastDay; d++) {
+    days.push(`${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+  }
+
+  // Build per-employee, per-date records
+  const records = {};
+  const today = new Date().toISOString().split('T')[0];
+
+  for (const emp of employees.rows) {
+    records[emp.id] = {};
+    for (const dateStr of days) {
+      const att = attendance.rows.find(a => {
+        const attDate = new Date(a.check_in).toISOString().split('T')[0];
+        return a.employee_id == emp.id && attDate === dateStr;
+      });
+
+      if (!att) {
+        // Future dates: no status; past dates: absent
+        if (dateStr > today) {
+          records[emp.id][dateStr] = { status: '-' };
+        } else {
+          // Check if weekend (Sat/Sun)
+          const dow = new Date(dateStr + 'T00:00:00').getDay();
+          records[emp.id][dateStr] = { status: dow === 0 || dow === 6 ? 'WEEKEND' : 'ABSENT' };
+        }
+        continue;
+      }
+
+      const checkIn = new Date(att.check_in);
+      const checkOut = att.last_check_out || att.check_out;
+
+      // Determine arrival status
+      let displayStatus = 'PRESENT';
+      if (shift) {
+        const arrStatus = att.arrival_status || '';
+        if (arrStatus === 'late') displayStatus = 'LATE';
+        else if (arrStatus === 'overlate') displayStatus = 'OVER LATE';
+        else if (arrStatus === 'halfday') displayStatus = 'HALF DAY';
+
+        // Missed checkout logic
+        if (!checkOut && dateStr < today) {
+          const shiftHrs = parseFloat(shift.total_working_hours || 9);
+          const shiftMins = shiftHrs * 60;
+          const netMins = att.net_work_minutes || 0;
+          displayStatus = netMins >= shiftMins / 2 ? 'HALF DAY' : 'ABSENT';
+        }
+      }
+
+      const netMins = att.net_work_minutes || 0;
+      const breakMins = att.total_break_minutes || 0;
+      const fmtTime = (m) => `${Math.floor(m / 60)}h ${String(Math.floor(m % 60)).padStart(2, '0')}m`;
+
+      records[emp.id][dateStr] = {
+        status: displayStatus,
+        check_in: checkIn.toISOString(),
+        check_out: checkOut || null,
+        net_work_minutes: netMins,
+        total_break_minutes: breakMins,
+        workHours: fmtTime(netMins),
+        breakTime: fmtTime(breakMins),
+        remarks: att.remarks || '',
+        arrival_status: att.arrival_status || 'on_time'
+      };
+    }
+  }
+
+  return {
+    employees: employees.rows.map(e => ({
+      id: e.id,
+      name: `${e.first_name || ''} ${e.last_name || ''}`.trim() || 'Unknown',
+      email: e.email,
+      department: e.department
+    })),
+    days,
+    records,
+    month,
+    year
+  };
+};
+
 module.exports = {
   checkIn,
   checkOut,
@@ -777,5 +883,6 @@ module.exports = {
   getDailyAttendance,
   updateAttendance,
   logEvent,
-  getStats
+  getStats,
+  getMonthlyAttendance
 };
