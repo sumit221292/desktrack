@@ -45,6 +45,73 @@ const getBreakConfig = async (companyId) => {
   return { lunch_allowed_minutes: 45, tea_allowed_minutes: 15, max_break_minutes: 70 };
 };
 
+/**
+ * Auto-close missed checkouts from previous days.
+ * Sets checkout to shift end time, status to HALF DAY.
+ */
+const closeMissedCheckouts = async (companyId) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    // Find attendance records from before today that have no checkout
+    const allAtt = await query(
+      'SELECT * FROM attendance WHERE company_id = $1',
+      [companyId]
+    );
+    const missed = allAtt.rows.filter(a => {
+      if (a.check_out) return false;
+      const attDate = String(a.attendance_date || a.check_in || '').split('T')[0];
+      return attDate && attDate < today;
+    });
+
+    if (missed.length === 0) return;
+
+    // Get shift info
+    const shifts = await query('SELECT * FROM shifts WHERE company_id = $1', [companyId]);
+    const defaultShift = shifts.rows[0] || { shift_end_time: '19:00:00', total_working_hours: 9 };
+
+    for (const rec of missed) {
+      const checkInDate = new Date(rec.check_in).toISOString().split('T')[0];
+      const endTime = String(defaultShift.shift_end_time || '19:00:00').substring(0, 8);
+      const checkOutTime = new Date(`${checkInDate}T${endTime}`);
+
+      // Close open sessions manually
+      const sessions = await query(
+        'SELECT * FROM attendance_sessions WHERE attendance_id = $1',
+        [rec.id]
+      );
+      let totalMins = 0;
+      for (const sess of sessions.rows) {
+        if (!sess.check_out) {
+          const dur = Math.max(1, Math.ceil((checkOutTime - new Date(sess.check_in)) / 60000));
+          await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = $2 WHERE id = $3',
+            [checkOutTime, dur, sess.id]);
+          totalMins += dur;
+        } else {
+          totalMins += parseInt(sess.duration_minutes) || 0;
+        }
+      }
+
+      const shiftHrs = parseFloat(defaultShift.total_working_hours || 9);
+      const halfShift = (shiftHrs * 60) / 2;
+      const status = totalMins >= halfShift ? 'INCOMPLETE' : 'ABSENT';
+
+      await query(
+        `UPDATE attendance SET check_out = $1, last_check_out = $1, status = $2,
+         net_work_minutes = $3, gross_minutes = $3, flags = $4,
+         ai_summary = $5
+         WHERE id = $6 AND company_id = $7`,
+        [checkOutTime, status, totalMins,
+         JSON.stringify(['MISSED_CHECKOUT', totalMins >= halfShift ? 'HALFDAY' : 'ABSENT']),
+         `Missed checkout. Auto-closed at shift end time.`, rec.id, companyId]
+      );
+
+      console.log(`[AutoClose] Closed missed checkout for employee ${rec.employee_id} on ${checkInDate} — ${status}, ${totalMins}min`);
+    }
+  } catch (e) {
+    console.error('[AutoClose] Error closing missed checkouts:', e.message);
+  }
+};
+
 const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = []) => {
   if (!checkIn) return { status: 'MISSING_ENTRY', flags: ['NO_CHECK_IN'] };
 
@@ -187,18 +254,18 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
     if (breakRecords.length > 3) flags.push('MULTIPLE_BREAKS');
   }
 
-  // 4. WORK TIME
+  // 4. WORK TIME (use Math.ceil to count partial minutes, minimum 1 min if any work done)
   const totalBreakMinutes = totalNamedBreakMinutes + otherBreakMinutes;
   let grossMinutes = 0;
   if (lastCheckOut) {
-    grossMinutes = Math.floor((lastCheckOut - firstCheckIn) / 60000);
+    grossMinutes = Math.ceil((lastCheckOut - firstCheckIn) / 60000);
   }
   // Fallback: compute from sessions if gross is 0 but sessions exist
   if (grossMinutes <= 0 && sessions.length > 0) {
     grossMinutes = sessions.reduce((sum, s) => {
-      if (s.duration_minutes) return sum + (parseInt(s.duration_minutes) || 0);
+      if (s.duration_minutes) return sum + Math.max(1, parseInt(s.duration_minutes) || 0);
       if (s.check_in && s.check_out) {
-        return sum + Math.floor((new Date(s.check_out) - new Date(s.check_in)) / 60000);
+        return sum + Math.max(1, Math.ceil((new Date(s.check_out) - new Date(s.check_in)) / 60000));
       }
       return sum;
     }, 0);
@@ -319,7 +386,7 @@ const checkIn = async (userIdOrEmployeeId, companyId, location, manualCheckInTim
   if (orphanSessions.rows.length > 0) {
     console.log(`[CheckIn] Closing ${orphanSessions.rows.length} orphaned sessions for employee ${employeeId}`);
     for (const sess of orphanSessions.rows) {
-      const dur = Math.max(0, Math.floor((new Date() - new Date(sess.check_in)) / 60000));
+      const dur = Math.max(1, Math.ceil((new Date() - new Date(sess.check_in)) / 60000));
       await query('UPDATE attendance_sessions SET check_out = NOW(), duration_minutes = $1 WHERE id = $2', [dur, sess.id]);
     }
   }
@@ -436,7 +503,7 @@ const checkOut = async (attendanceId, companyId, manualCheckOutTime) => {
 
   // Close every open session
   for (const session of openSessions.rows) {
-    const durationMinutes = Math.max(0, Math.floor((checkOutTime - new Date(session.check_in)) / 60000));
+    const durationMinutes = Math.max(1, Math.ceil((checkOutTime - new Date(session.check_in)) / 60000));
     await query(
       'UPDATE attendance_sessions SET check_out = $1, duration_minutes = $2 WHERE id = $3',
       [checkOutTime, durationMinutes, session.id]
@@ -623,6 +690,9 @@ const logEvent = async (userIdOrEmployeeId, companyId, eventType, eventTime) => 
  * Get daily attendance for all employees
  */
 const getDailyAttendance = async (companyId, dateStr) => {
+  // Auto-close missed checkouts from previous days
+  await closeMissedCheckouts(companyId);
+
   const employees = await query('SELECT * FROM employees WHERE company_id = $1', [companyId]);
   
   // Get attendance for the specific date

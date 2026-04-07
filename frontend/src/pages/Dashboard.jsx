@@ -146,6 +146,26 @@ const Dashboard = () => {
   const [celebrations, setCelebrations] = useState([]);
   const [showCelebration, setShowCelebration] = useState(true);
   const [myAttendance, setMyAttendance] = useState(null);
+  const [onLunch, setOnLunch] = useState(false);
+  const [onTea, setOnTea] = useState(false);
+
+  const handleBreak = async (type) => {
+    // type = 'LUNCH' or 'TEA'
+    const isOn = type === 'LUNCH' ? onLunch : onTea;
+    const eventType = isOn ? `${type}_END` : `${type}_START`;
+    try {
+      await api.post('/attendance/event', {
+        event_type: eventType,
+        event_time: new Date().toISOString(),
+        attendance_id: myAttendance?.id || localStorage.getItem('attendanceId')
+      });
+      if (type === 'LUNCH') setOnLunch(!isOn);
+      else setOnTea(!isOn);
+    } catch (err) {
+      console.error('Break event error:', err);
+      alert(err.response?.data?.error || 'Failed to log break');
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -192,6 +212,11 @@ const Dashboard = () => {
         if (user && Array.isArray(attendanceData)) {
           const myRec = attendanceData.find(a => a.email === user.email && a.check_in && a.check_in !== '-');
           setMyAttendance(myRec || null);
+          // Sync break status — check if lunch/tea is currently active
+          if (myRec) {
+            if (myRec.lunch_start && !myRec.lunch_end) setOnLunch(true);
+            if (myRec.tea_start && !myRec.tea_end) setOnTea(true);
+          }
 
           // For EMPLOYEE: override stats with personal data
           if (isEmployee) {
@@ -416,6 +441,28 @@ const Dashboard = () => {
             }
             {isCheckedIn ? 'Check Out Now' : 'Check In Now'}
           </button>
+
+          {/* Break Buttons — visible only when checked in */}
+          {isCheckedIn && (
+            <>
+              <button
+                onClick={() => handleBreak('LUNCH')}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs shadow-sm transition-all ${
+                  onLunch ? 'bg-orange-500 text-white hover:bg-orange-600' : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
+                }`}
+              >
+                🍽️ {onLunch ? 'End Lunch' : 'Lunch Break'}
+              </button>
+              <button
+                onClick={() => handleBreak('TEA')}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs shadow-sm transition-all ${
+                  onTea ? 'bg-teal-500 text-white hover:bg-teal-600' : 'bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100'
+                }`}
+              >
+                🍵 {onTea ? 'End Tea' : 'Tea Break'}
+              </button>
+            </>
+          )}
 
           <div className="relative group flex items-center bg-white px-2 py-1.5 rounded-xl border border-slate-200 shadow-sm text-sm font-medium text-slate-600 focus-within:ring-2 focus-within:ring-primary-500/20 focus-within:border-primary-500 transition-all cursor-pointer">
             <CalendarIcon size={16} className="text-primary-500 ml-2 absolute pointer-events-none" />
