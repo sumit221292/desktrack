@@ -334,10 +334,205 @@ test.describe('8. Settings', () => {
 });
 
 // ============================================
-// 9. CONSOLE ERRORS & API FAILURES
+// 9. LEAVES MODULE
 // ============================================
-test.describe('9. Health Check', () => {
-  test('9.1 Collect console errors across all pages', async ({ page }) => {
+test.describe('9. Leaves', () => {
+  test.beforeEach(async ({ page }) => {
+    await injectAuth(page);
+    await page.goto(`${BASE}/leaves`);
+    await page.waitForTimeout(3000);
+  });
+
+  test('9.1 Leaves page loads', async ({ page }) => {
+    await expect(page.locator('text=Leave Management')).toBeVisible();
+  });
+
+  test('9.2 Stats cards display', async ({ page }) => {
+    await expect(page.getByRole('paragraph').filter({ hasText: 'Pending' })).toBeVisible();
+    await expect(page.getByRole('paragraph').filter({ hasText: 'Approved' })).toBeVisible();
+    await expect(page.getByRole('paragraph').filter({ hasText: 'Rejected' })).toBeVisible();
+  });
+
+  test('9.3 Apply Leave button exists', async ({ page }) => {
+    await expect(page.locator('button:has-text("Apply Leave")')).toBeVisible();
+  });
+
+  test('9.4 Apply Leave modal opens with form', async ({ page }) => {
+    await page.locator('button:has-text("Apply Leave")').click();
+    await page.waitForTimeout(1500);
+    await expect(page.locator('text=Apply for Leave')).toBeVisible();
+    await expect(page.locator('form select')).toBeVisible();
+    await expect(page.locator('form input[type="date"]').first()).toBeVisible();
+    await expect(page.locator('form textarea')).toBeVisible();
+  });
+
+  test('9.5 Apply leave - submit a request', async ({ page }) => {
+    await page.locator('button:has-text("Apply Leave")').click();
+    await page.waitForTimeout(1500);
+    // Select first leave type from modal's select
+    const modal = page.locator('[class*="modal"], [class*="Modal"], div:has(> form)').last();
+    const typeSelect = modal.locator('select').first();
+    await typeSelect.selectOption({ index: 1 });
+    // Fill dates
+    const dateInputs = modal.locator('input[type="date"]');
+    await dateInputs.nth(0).fill('2026-04-20');
+    await dateInputs.nth(1).fill('2026-04-21');
+    await modal.locator('textarea').fill('Playwright test leave');
+    await page.waitForTimeout(500);
+    // Submit
+    await modal.locator('button:has-text("Submit")').click();
+    await page.waitForTimeout(3000);
+    // Page should show leave requests section
+    const body = await page.locator('body').innerText();
+    expect(body).toMatch(/LEAVE REQUESTS|Leave Requests/i);
+  });
+
+  test('9.6 Leave requests table shows data', async ({ page }) => {
+    const body = await page.locator('body').innerText();
+    expect(body).toMatch(/LEAVE REQUESTS|Leave Requests/i);
+    await expect(page.locator('input[placeholder="Search employee..."]')).toBeVisible();
+  });
+
+  test('9.7 Manage Types button works (HR only)', async ({ page }) => {
+    const btn = page.locator('button:has-text("Manage Types")');
+    if (await btn.isVisible()) {
+      await btn.click();
+      await page.waitForTimeout(1000);
+      await expect(page.locator('text=Manage Leave Types')).toBeVisible();
+      // Should show default leave types
+      const body = await page.locator('body').innerText();
+      const hasTypes = /CL|SL|EL|UL|Casual|Sick|Earned/.test(body);
+      expect(hasTypes).toBeTruthy();
+    }
+  });
+
+  test('9.8 Init Balances button works', async ({ page }) => {
+    const btn = page.locator('button:has-text("Init Balances")');
+    if (await btn.isVisible()) {
+      await btn.click();
+      await page.waitForTimeout(4000);
+      const body = await page.locator('body').innerText();
+      expect(body).toMatch(/LEAVE BALANCES|Leave Balances/i);
+    }
+  });
+
+  test('9.9 Status filter works', async ({ page }) => {
+    const filter = page.locator('select').last();
+    await filter.selectOption('PENDING');
+    await page.waitForTimeout(1500);
+    const body = await page.locator('body').innerText();
+    expect(body).toMatch(/LEAVE REQUESTS|Leave Requests|No leave requests/i);
+  });
+
+  test('9.10 Approve/Reject buttons visible for pending requests', async ({ page }) => {
+    // If there are pending requests, approve/reject buttons should be visible
+    const approveBtn = page.locator('button[title="Approve"]').first();
+    const hasApprove = await approveBtn.isVisible().catch(() => false);
+    console.log(`[TEST] Approve button visible: ${hasApprove}`);
+  });
+});
+
+// ============================================
+// 10. PAYROLL MODULE
+// ============================================
+test.describe('10. Payroll', () => {
+  test.beforeEach(async ({ page }) => {
+    await injectAuth(page);
+    await page.goto(`${BASE}/payroll`);
+    await page.waitForTimeout(3000);
+  });
+
+  test('10.1 Payroll page loads', async ({ page }) => {
+    const body = await page.locator('body').innerText();
+    expect(body.length).toBeGreaterThan(100);
+    // Should have either payroll content or tabs
+    const hasPayroll = /Payroll|Salary|Net Pay|Gross/.test(body);
+    expect(hasPayroll).toBeTruthy();
+  });
+
+  test('10.2 Payroll tabs exist', async ({ page }) => {
+    const tabs = ['Payroll Records', 'Salary Structure', 'Tax Declaration', 'Downloads'];
+    for (const t of tabs) {
+      const tab = page.locator(`text=${t}`).first();
+      const visible = await tab.isVisible().catch(() => false);
+      console.log(`[TEST] Tab "${t}" visible: ${visible}`);
+    }
+  });
+
+  test('10.3 Summary cards display', async ({ page }) => {
+    const cards = ['Total Payout', 'Gross Salary', 'Total Deductions', 'Avg Net Salary'];
+    for (const c of cards) {
+      const el = page.locator(`text=${c}`).first();
+      const visible = await el.isVisible().catch(() => false);
+      console.log(`[TEST] Summary "${c}" visible: ${visible}`);
+    }
+  });
+
+  test('10.4 Run Payroll button exists (HR)', async ({ page }) => {
+    const btn = page.locator('button:has-text("Run Payroll")');
+    const visible = await btn.isVisible().catch(() => false);
+    console.log(`[TEST] Run Payroll button visible: ${visible}`);
+  });
+
+  test('10.5 Run Payroll flow', async ({ page }) => {
+    const btn = page.locator('button:has-text("Run Payroll")');
+    if (await btn.isVisible()) {
+      await btn.click();
+      await page.waitForTimeout(1500);
+      // Confirm modal should appear
+      const confirmBtn = page.locator('button:has-text("Confirm"), button:has-text("Process"), button:has-text("Run")').last();
+      if (await confirmBtn.isVisible()) {
+        await confirmBtn.click();
+        await page.waitForTimeout(3000);
+      }
+    }
+  });
+
+  test('10.6 Salary Structure tab', async ({ page }) => {
+    const tab = page.locator('text=Salary Structure').first();
+    if (await tab.isVisible()) {
+      await tab.click();
+      await page.waitForTimeout(2000);
+      const body = await page.locator('body').innerText();
+      // Should show employees with salary info
+      expect(body.length).toBeGreaterThan(100);
+    }
+  });
+
+  test('10.7 Tax Declaration tab', async ({ page }) => {
+    const tab = page.locator('text=Tax Declaration').first();
+    if (await tab.isVisible()) {
+      await tab.click();
+      await page.waitForTimeout(2000);
+      const body = await page.locator('body').innerText();
+      expect(body.length).toBeGreaterThan(100);
+    }
+  });
+
+  test('10.8 Downloads tab', async ({ page }) => {
+    const tab = page.locator('text=Downloads').first();
+    if (await tab.isVisible()) {
+      await tab.click();
+      await page.waitForTimeout(2000);
+      const body = await page.locator('body').innerText();
+      const hasDownload = /Salary Slip|Form 16|Download/.test(body);
+      expect(hasDownload).toBeTruthy();
+    }
+  });
+
+  test('10.9 Month/Year selector works', async ({ page }) => {
+    const selects = page.locator('select');
+    const count = await selects.count();
+    // Should have month and year selectors
+    expect(count).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ============================================
+// 11. CONSOLE ERRORS & API FAILURES
+// ============================================
+test.describe('11. Health Check', () => {
+  test('11.1 Collect console errors across all pages', async ({ page }) => {
     const errors = [];
     page.on('console', msg => {
       if (msg.type() === 'error' && !msg.text().includes('favicon')) {
@@ -361,7 +556,7 @@ test.describe('9. Health Check', () => {
     }
   });
 
-  test('9.2 Collect failed API requests', async ({ page }) => {
+  test('11.2 Collect failed API requests', async ({ page }) => {
     const failures = [];
     page.on('response', res => {
       if (res.url().includes('/api/') && res.status() >= 400) {

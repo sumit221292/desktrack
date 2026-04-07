@@ -106,7 +106,15 @@ const memoryDB = {
   salary_structure_history: [],
   payroll_records: [],
   form16_records: [],
-  tax_declarations: []
+  tax_declarations: [],
+  leave_types: [
+    { id: 1, company_id: 1, name: 'Casual Leave', code: 'CL', annual_quota: 12, carry_forward: false },
+    { id: 2, company_id: 1, name: 'Sick Leave', code: 'SL', annual_quota: 6, carry_forward: false },
+    { id: 3, company_id: 1, name: 'Earned Leave', code: 'EL', annual_quota: 15, carry_forward: true },
+    { id: 4, company_id: 1, name: 'Unpaid Leave', code: 'UL', annual_quota: 0, carry_forward: false },
+  ],
+  leave_requests: [],
+  leave_balances: []
 };
 
 const DEFAULT_SALARY_STRUCTURES = [
@@ -800,6 +808,36 @@ const db = {
           rowCount = 1;
         }
 
+        // [LEAVE TYPES]
+        else if (q.includes('insert into leave_types')) {
+          const lt = { id: (memoryDB.leave_types || []).length > 0 ? Math.max(...memoryDB.leave_types.map(l=>l.id))+1 : 1, company_id: params[0], name: params[1], code: params[2], annual_quota: parseInt(params[3])||0, carry_forward: params[4]||false, created_at: new Date() };
+          memoryDB.leave_types.push(lt); saveToDisk(); resultRows = [lt]; rowCount = 1;
+        }
+        else if (q.includes('update leave_types')) {
+          const idx = memoryDB.leave_types.findIndex(l => l.id == params[4] && l.company_id == params[5]);
+          if (idx !== -1) { Object.assign(memoryDB.leave_types[idx], { name: params[0], code: params[1], annual_quota: parseInt(params[2])||0, carry_forward: params[3]||false }); saveToDisk(); resultRows = [memoryDB.leave_types[idx]]; rowCount = 1; }
+        }
+        else if (q.includes('delete from leave_types')) {
+          memoryDB.leave_types = memoryDB.leave_types.filter(l => !(l.id == params[0] && l.company_id == params[1])); saveToDisk(); rowCount = 1;
+        }
+        // [LEAVE REQUESTS]
+        else if (q.includes('insert into leave_requests')) {
+          const lr = { id: (memoryDB.leave_requests || []).length > 0 ? Math.max(...memoryDB.leave_requests.map(l=>l.id))+1 : 1, company_id: params[0], employee_id: params[1], leave_type_id: params[2], start_date: params[3], end_date: params[4], days: parseInt(params[5])||1, reason: params[6]||'', status: 'PENDING', created_at: new Date() };
+          memoryDB.leave_requests.push(lr); saveToDisk(); resultRows = [lr]; rowCount = 1;
+        }
+        else if (q.includes('update leave_requests') && q.includes('status')) {
+          const idx = memoryDB.leave_requests.findIndex(l => l.id == params[2] && l.company_id == params[3]);
+          if (idx !== -1) { Object.assign(memoryDB.leave_requests[idx], { status: params[0], reviewed_by: params[1], reviewed_at: new Date() }); saveToDisk(); resultRows = [memoryDB.leave_requests[idx]]; rowCount = 1; }
+        }
+        // [LEAVE BALANCES]
+        else if (q.includes('insert into leave_balances') || (q.includes('leave_balances') && q.includes('on conflict'))) {
+          if (!memoryDB.leave_balances) memoryDB.leave_balances = [];
+          const existing = memoryDB.leave_balances.findIndex(b => b.employee_id == params[1] && b.leave_type_id == params[2] && b.year == params[3]);
+          if (existing !== -1) { Object.assign(memoryDB.leave_balances[existing], { total: parseInt(params[4])||0, used: parseInt(params[5])||0, remaining: parseInt(params[6])||0 }); saveToDisk(); resultRows = [memoryDB.leave_balances[existing]]; }
+          else { const lb = { id: memoryDB.leave_balances.length+1, company_id: params[0], employee_id: params[1], leave_type_id: params[2], year: params[3], total: parseInt(params[4])||0, used: parseInt(params[5])||0, remaining: parseInt(params[6])||0 }; memoryDB.leave_balances.push(lb); saveToDisk(); resultRows = [lb]; }
+          rowCount = 1;
+        }
+
       // --- 2. READ Operations (Match these second) ---
 
         // [SELECT] Attendance Events (MUST be before 'from attendance' checks!)
@@ -1124,6 +1162,34 @@ const db = {
           }
           rowCount = resultRows.length;
         }
+        // [SELECT] Leave Types
+        else if (q.includes('from leave_types')) {
+          resultRows = (memoryDB.leave_types || []).filter(l => l.company_id == params[0]);
+          rowCount = resultRows.length;
+        }
+        // [SELECT] Leave Requests
+        else if (q.includes('from leave_requests')) {
+          let results = (memoryDB.leave_requests || []).filter(l => l.company_id == params[0]);
+          if (q.includes('employee_id') && params[1]) results = results.filter(l => l.employee_id == params[1]);
+          // Join employee and leave_type data
+          resultRows = results.map(r => {
+            const emp = memoryDB.employees.find(e => e.id == r.employee_id) || {};
+            const lt = (memoryDB.leave_types || []).find(t => t.id == r.leave_type_id) || {};
+            return { ...r, employee_name: `${emp.first_name||''} ${emp.last_name||''}`.trim(), leave_type_name: lt.name || '', leave_type_code: lt.code || '' };
+          });
+          rowCount = resultRows.length;
+        }
+        // [SELECT] Leave Balances
+        else if (q.includes('from leave_balances')) {
+          let results = (memoryDB.leave_balances || []).filter(b => b.company_id == params[0]);
+          if (q.includes('employee_id') && params[1]) results = results.filter(b => b.employee_id == params[1]);
+          if (q.includes('year') && params.length > 2) results = results.filter(b => b.year == params[2]);
+          resultRows = results.map(b => {
+            const lt = (memoryDB.leave_types || []).find(t => t.id == b.leave_type_id) || {};
+            return { ...b, leave_type_name: lt.name || '', leave_type_code: lt.code || '' };
+          });
+          rowCount = resultRows.length;
+        }
         else if (q.includes('from custom_field_values')) {
           const companyId = params[0];
           const entityId = params[1];
@@ -1370,6 +1436,43 @@ async function runMigrations() {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           UNIQUE(employee_id, company_id, financial_year)
+        );
+
+        CREATE TABLE IF NOT EXISTS leave_types (
+          id SERIAL PRIMARY KEY,
+          company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+          name VARCHAR(100) NOT NULL,
+          code VARCHAR(10) NOT NULL,
+          annual_quota INTEGER DEFAULT 0,
+          carry_forward BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS leave_requests (
+          id SERIAL PRIMARY KEY,
+          company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+          employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+          leave_type_id INTEGER REFERENCES leave_types(id),
+          start_date DATE NOT NULL,
+          end_date DATE NOT NULL,
+          days INTEGER NOT NULL DEFAULT 1,
+          reason TEXT,
+          status VARCHAR(20) DEFAULT 'PENDING',
+          reviewed_by INTEGER REFERENCES employees(id),
+          reviewed_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS leave_balances (
+          id SERIAL PRIMARY KEY,
+          company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+          employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+          leave_type_id INTEGER REFERENCES leave_types(id),
+          year INTEGER NOT NULL,
+          total INTEGER DEFAULT 0,
+          used INTEGER DEFAULT 0,
+          remaining INTEGER DEFAULT 0,
+          UNIQUE(employee_id, leave_type_id, year)
         );
 
         CREATE TABLE IF NOT EXISTS custom_fields (

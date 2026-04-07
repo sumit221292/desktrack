@@ -41,6 +41,7 @@ app.use('/api/custom-fields', require('./routes/customFields'));
 app.use('/api/performance', require('./routes/performanceRoutes'));
 app.use('/api/payroll', require('./routes/payroll'));
 app.use('/api/settings', require('./routes/settings'));
+app.use('/api/leaves', require('./routes/leaves'));
 app.use('/api/health', require('./routes/health'));
 app.use('/api/config', require('./routes/config'));
 
