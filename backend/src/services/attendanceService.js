@@ -732,8 +732,8 @@ const getDailyAttendance = async (companyId, dateStr) => {
       const lastOut = existing.last_check_out || existing.check_out;
       const checkOut = lastOut ? new Date(lastOut) : null;
 
-      const empSessions = sessions.rows.filter(s => s.employee_id === emp.id);
-      const empEvents = events.rows.filter(e => e.employee_id === emp.id);
+      const empSessions = sessions.rows.filter(s => s.employee_id == emp.id);
+      const empEvents = events.rows.filter(e => e.employee_id == emp.id);
 
       const { daily_attendance } = calculateAttendance({ ...shift, employee_id: emp.id, timezone: companyTz, lunch_allowed_minutes: brkCfg.lunch_allowed_minutes || 45, tea_allowed_minutes: brkCfg.tea_allowed_minutes || 15 }, checkIn, checkOut, empEvents, empSessions);
 
