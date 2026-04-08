@@ -165,8 +165,9 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
   const windows = [];
 
   breakTypes.forEach(type => {
-    const startEvent = events.find(e => e.event_type === `${type.toUpperCase()}_START`);
-    const endEvent = events.find(e => e.event_type === `${type.toUpperCase()}_END`);
+    const typeUpper = type.toUpperCase();
+    const startEvents = events.filter(e => e.event_type === `${typeUpper}_START`).sort((a, b) => new Date(a.event_time) - new Date(b.event_time));
+    const endEvents = events.filter(e => e.event_type === `${typeUpper}_END`).sort((a, b) => new Date(a.event_time) - new Date(b.event_time));
     const allowedMins = shift[`${type}_allowed_minutes`];
 
     let status = 'NOT_TAKEN';
@@ -177,19 +178,29 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
 
     if (allowedMins === undefined) {
       status = 'NOT_CONFIGURED';
-    } else if (!startEvent) {
+    } else if (startEvents.length === 0) {
       status = 'NOT_TAKEN';
-    } else if (startEvent && !endEvent) {
-      status = 'INCOMPLETE';
-      actualMins = allowedMins; // Deduct default
-      startTime = new Date(startEvent.event_time);
     } else {
-      startTime = new Date(startEvent.event_time);
-      endTime = new Date(endEvent.event_time);
-      actualMins = Math.floor((endTime - startTime) / 60000);
-      excessMins = Math.max(0, actualMins - allowedMins);
-      status = actualMins <= allowedMins ? 'ON_TIME' : 'EXTENDED';
-      windows.push({ start: startTime, end: endTime, type });
+      // Pair up start/end events and sum all break durations
+      startTime = new Date(startEvents[0].event_time);
+      for (let i = 0; i < startEvents.length; i++) {
+        const sTime = new Date(startEvents[i].event_time);
+        const eEvent = endEvents[i];
+        if (eEvent) {
+          const eTime = new Date(eEvent.event_time);
+          actualMins += Math.max(1, Math.ceil((eTime - sTime) / 60000));
+          endTime = eTime;
+          windows.push({ start: sTime, end: eTime, type });
+        } else {
+          // Last start has no end — break is still active
+          status = 'INCOMPLETE';
+          actualMins += Math.ceil((new Date() - sTime) / 60000);
+        }
+      }
+      if (status !== 'INCOMPLETE') {
+        excessMins = Math.max(0, actualMins - allowedMins);
+        status = actualMins <= allowedMins ? 'ON_TIME' : 'EXTENDED';
+      }
     }
 
     namedBreakResults[`${type}_start`] = startTime ? startTime.toISOString() : '';
@@ -734,7 +745,6 @@ const getDailyAttendance = async (companyId, dateStr) => {
 
       const empSessions = sessions.rows.filter(s => s.employee_id == emp.id);
       const empEvents = events.rows.filter(e => e.employee_id == emp.id);
-
       const { daily_attendance } = calculateAttendance({ ...shift, employee_id: emp.id, timezone: companyTz, lunch_allowed_minutes: brkCfg.lunch_allowed_minutes || 45, tea_allowed_minutes: brkCfg.tea_allowed_minutes || 15 }, checkIn, checkOut, empEvents, empSessions);
 
       // Expected checkout = check-in + shift total working hours + excess break time

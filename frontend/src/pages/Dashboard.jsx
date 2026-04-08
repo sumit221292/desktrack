@@ -134,7 +134,7 @@ const CelebrationOverlay = ({ celebrations, onDismiss }) => {
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { user, isCheckedIn, toggleCheckIn, selectedDate, setSelectedDate } = useAuth();
+  const { user, isCheckedIn, toggleCheckIn, selectedDate, setSelectedDate, breakConfig } = useAuth();
   const isEmployee = user?.role === 'EMPLOYEE';
   const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'HR';
 
@@ -148,9 +148,42 @@ const Dashboard = () => {
   const [myAttendance, setMyAttendance] = useState(null);
   const [onLunch, setOnLunch] = useState(false);
   const [onTea, setOnTea] = useState(false);
+  const [lunchStartTime, setLunchStartTime] = useState(null);
+  const [teaStartTime, setTeaStartTime] = useState(null);
+  const [lunchUsedMins, setLunchUsedMins] = useState(0);
+  const [teaUsedMins, setTeaUsedMins] = useState(0);
+  const [breakTick, setBreakTick] = useState(0);
+
+  const lunchAllowed = breakConfig?.lunch_allowed_minutes || 45;
+  const teaAllowed = breakConfig?.tea_allowed_minutes || 15;
+
+  // Tick every second for countdown
+  useEffect(() => {
+    if (!onLunch && !onTea) return;
+    const id = setInterval(() => setBreakTick(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [onLunch, onTea]);
+
+  // Calculate live remaining for active break
+  const getBreakCountdown = (type) => {
+    const startTime = type === 'LUNCH' ? lunchStartTime : teaStartTime;
+    const usedMins = type === 'LUNCH' ? lunchUsedMins : teaUsedMins;
+    const allowed = type === 'LUNCH' ? lunchAllowed : teaAllowed;
+    if (!startTime) return { remaining: allowed - usedMins, elapsed: 0, exceeded: false };
+    const elapsedSec = Math.floor((Date.now() - new Date(startTime).getTime()) / 1000);
+    const totalUsedSec = (usedMins * 60) + elapsedSec;
+    const remainingSec = (allowed * 60) - totalUsedSec;
+    return { remaining: remainingSec, elapsed: elapsedSec, exceeded: remainingSec < 0 };
+  };
+
+  const fmtCountdown = (secs) => {
+    const abs = Math.abs(Math.floor(secs));
+    const m = Math.floor(abs / 60);
+    const s = abs % 60;
+    return `${secs < 0 ? '-' : ''}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
 
   const handleBreak = async (type) => {
-    // type = 'LUNCH' or 'TEA'
     const isOn = type === 'LUNCH' ? onLunch : onTea;
     const eventType = isOn ? `${type}_END` : `${type}_START`;
     try {
@@ -159,8 +192,26 @@ const Dashboard = () => {
         event_time: new Date().toISOString(),
         attendance_id: myAttendance?.id || localStorage.getItem('attendanceId')
       });
-      if (type === 'LUNCH') setOnLunch(!isOn);
-      else setOnTea(!isOn);
+      if (type === 'LUNCH') {
+        if (isOn) {
+          // Ending lunch — add elapsed to used
+          const elapsed = lunchStartTime ? Math.ceil((Date.now() - new Date(lunchStartTime).getTime()) / 60000) : 0;
+          setLunchUsedMins(prev => prev + elapsed);
+          setLunchStartTime(null);
+        } else {
+          setLunchStartTime(new Date().toISOString());
+        }
+        setOnLunch(!isOn);
+      } else {
+        if (isOn) {
+          const elapsed = teaStartTime ? Math.ceil((Date.now() - new Date(teaStartTime).getTime()) / 60000) : 0;
+          setTeaUsedMins(prev => prev + elapsed);
+          setTeaStartTime(null);
+        } else {
+          setTeaStartTime(new Date().toISOString());
+        }
+        setOnTea(!isOn);
+      }
     } catch (err) {
       console.error('Break event error:', err);
       alert(err.response?.data?.error || 'Failed to log break');
@@ -212,10 +263,21 @@ const Dashboard = () => {
         if (user && Array.isArray(attendanceData)) {
           const myRec = attendanceData.find(a => a.email === user.email && a.check_in && a.check_in !== '-');
           setMyAttendance(myRec || null);
-          // Sync break status — check if lunch/tea is currently active
+          // Sync break status from attendance data
           if (myRec) {
-            if (myRec.lunch_start && !myRec.lunch_end) setOnLunch(true);
-            if (myRec.tea_start && !myRec.tea_end) setOnTea(true);
+            // Lunch: check if active (started but not ended)
+            if (myRec.lunch_start && !myRec.lunch_end) {
+              setOnLunch(true);
+              setLunchStartTime(myRec.lunch_start);
+            }
+            // Tea: check if active
+            if (myRec.tea_start && !myRec.tea_end) {
+              setOnTea(true);
+              setTeaStartTime(myRec.tea_start);
+            }
+            // Set used minutes from completed breaks
+            setLunchUsedMins(parseInt(myRec.lunch_actual_minutes) || 0);
+            setTeaUsedMins(parseInt(myRec.tea_actual_minutes) || 0);
           }
 
           // For EMPLOYEE: override stats with personal data
@@ -445,22 +507,40 @@ const Dashboard = () => {
           {/* Break Buttons — visible only when checked in */}
           {isCheckedIn && (
             <>
-              <button
-                onClick={() => handleBreak('LUNCH')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs shadow-sm transition-all ${
-                  onLunch ? 'bg-orange-500 text-white hover:bg-orange-600' : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
-                }`}
-              >
-                🍽️ {onLunch ? 'End Lunch' : 'Lunch Break'}
-              </button>
-              <button
-                onClick={() => handleBreak('TEA')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs shadow-sm transition-all ${
-                  onTea ? 'bg-teal-500 text-white hover:bg-teal-600' : 'bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100'
-                }`}
-              >
-                🍵 {onTea ? 'End Tea' : 'Tea Break'}
-              </button>
+              {(() => {
+                const lunchCD = getBreakCountdown('LUNCH');
+                const teaCD = getBreakCountdown('TEA');
+                return (
+                  <>
+                    <button
+                      onClick={() => handleBreak('LUNCH')}
+                      disabled={onTea}
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs shadow-sm transition-all
+                        ${onTea ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400 border border-slate-200' :
+                          onLunch ? (lunchCD.exceeded ? 'bg-red-500 text-white hover:bg-red-600 animate-pulse' : 'bg-orange-500 text-white hover:bg-orange-600')
+                          : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'}`}
+                      title={`Lunch: ${lunchUsedMins}/${lunchAllowed} min used`}
+                    >
+                      🍽️ {onLunch
+                        ? <><span className={`font-mono ${lunchCD.exceeded ? 'text-yellow-200' : ''}`}>{fmtCountdown(lunchCD.remaining)}</span> End</>
+                        : <>Lunch <span className="font-mono text-[10px] opacity-70">{lunchUsedMins}/{lunchAllowed}m</span></>}
+                    </button>
+                    <button
+                      onClick={() => handleBreak('TEA')}
+                      disabled={onLunch}
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs shadow-sm transition-all
+                        ${onLunch ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400 border border-slate-200' :
+                          onTea ? (teaCD.exceeded ? 'bg-red-500 text-white hover:bg-red-600 animate-pulse' : 'bg-teal-500 text-white hover:bg-teal-600')
+                          : 'bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100'}`}
+                      title={`Tea: ${teaUsedMins}/${teaAllowed} min used`}
+                    >
+                      🍵 {onTea
+                        ? <><span className={`font-mono ${teaCD.exceeded ? 'text-yellow-200' : ''}`}>{fmtCountdown(teaCD.remaining)}</span> End</>
+                        : <>Tea <span className="font-mono text-[10px] opacity-70">{teaUsedMins}/{teaAllowed}m</span></>}
+                    </button>
+                  </>
+                );
+              })()}
             </>
           )}
 
