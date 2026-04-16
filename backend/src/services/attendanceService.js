@@ -212,8 +212,24 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
       }
     }
 
+    // For active break: find the latest unmatched START (the one without END pair)
+    let activeStartTime = null;
+    let completedMins = 0;
+    if (startEvents.length > endEvents.length) {
+      // Last start has no end — that's the active one
+      activeStartTime = new Date(startEvents[startEvents.length - 1].event_time);
+      // Completed = all paired breaks (exclude active session)
+      for (let i = 0; i < endEvents.length; i++) {
+        completedMins += Math.max(1, Math.ceil((new Date(endEvents[i].event_time) - new Date(startEvents[i].event_time)) / 60000));
+      }
+    } else {
+      completedMins = actualMins;
+    }
+
     namedBreakResults[`${type}_start`] = startTime ? startTime.toISOString() : '';
     namedBreakResults[`${type}_end`] = endTime ? endTime.toISOString() : '';
+    namedBreakResults[`${type}_active_start`] = activeStartTime ? activeStartTime.toISOString() : '';
+    namedBreakResults[`${type}_completed_minutes`] = completedMins;
     namedBreakResults[`${type}_actual_minutes`] = actualMins;
     namedBreakResults[`${type}_excess_minutes`] = excessMins;
     namedBreakResults[`${type}_status`] = status;

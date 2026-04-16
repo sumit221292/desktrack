@@ -293,28 +293,23 @@ const Dashboard = () => {
             setOnLunch(lunchActive);
             setOnTea(teaActive);
 
-            // For active break: the API's actual_minutes includes live estimate.
-            // We need completed_mins (without current session) + live start time.
-            // completed_mins = actual_minutes when NOT active, or 0 if only 1 break that's active
+            // Use backend's precise fields:
+            // _active_start = latest unmatched START (current session)
+            // _completed_minutes = only completed pairs (no active session)
             if (lunchActive) {
-              setLunchStartTime(myRec.lunch_start || new Date().toISOString());
-              // actual_minutes from API includes current session estimate — use it as-is for display
-              // The countdown timer will use lunchUsedMins for COMPLETED breaks only
-              // Estimate: subtract elapsed of current session
-              const currentElapsed = myRec.lunch_start ? Math.ceil((Date.now() - new Date(myRec.lunch_start).getTime()) / 60000) : 0;
-              setLunchUsedMins(Math.max(0, (parseInt(myRec.lunch_actual_minutes) || 0) - currentElapsed));
+              setLunchStartTime(myRec.lunch_active_start || myRec.lunch_start || new Date().toISOString());
+              setLunchUsedMins(parseInt(myRec.lunch_completed_minutes) || 0);
             } else {
               setLunchStartTime(null);
-              setLunchUsedMins(parseInt(myRec.lunch_actual_minutes) || 0);
+              setLunchUsedMins(parseInt(myRec.lunch_completed_minutes ?? myRec.lunch_actual_minutes) || 0);
             }
 
             if (teaActive) {
-              setTeaStartTime(myRec.tea_start || new Date().toISOString());
-              const currentElapsed = myRec.tea_start ? Math.ceil((Date.now() - new Date(myRec.tea_start).getTime()) / 60000) : 0;
-              setTeaUsedMins(Math.max(0, (parseInt(myRec.tea_actual_minutes) || 0) - currentElapsed));
+              setTeaStartTime(myRec.tea_active_start || myRec.tea_start || new Date().toISOString());
+              setTeaUsedMins(parseInt(myRec.tea_completed_minutes) || 0);
             } else {
               setTeaStartTime(null);
-              setTeaUsedMins(parseInt(myRec.tea_actual_minutes) || 0);
+              setTeaUsedMins(parseInt(myRec.tea_completed_minutes ?? myRec.tea_actual_minutes) || 0);
             }
           }
 
