@@ -1,23 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50">
   <defs>
-    <linearGradient id="g1" x1="0" y1="0" x2="50" y2="50">
-      <stop offset="0%" stop-color="#6366f1"/>
-      <stop offset="50%" stop-color="#8b5cf6"/>
-      <stop offset="100%" stop-color="#a855f7"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="50" y2="50">
+      <stop offset="0%" stop-color="#1e3a5f"/>
+      <stop offset="100%" stop-color="#0f172a"/>
     </linearGradient>
-    <linearGradient id="g2" x1="0" y1="50" x2="50" y2="0">
-      <stop offset="0%" stop-color="#3b82f6"/>
-      <stop offset="100%" stop-color="#6366f1"/>
+    <linearGradient id="c" x1="8" y1="8" x2="30" y2="42">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#2563eb"/>
     </linearGradient>
-    <linearGradient id="g3" x1="25" y1="10" x2="40" y2="45">
-      <stop offset="0%" stop-color="#f59e0b"/>
-      <stop offset="100%" stop-color="#f97316"/>
+    <linearGradient id="f" x1="22" y1="12" x2="40" y2="40">
+      <stop offset="0%" stop-color="#fb923c"/>
+      <stop offset="100%" stop-color="#ea580c"/>
     </linearGradient>
   </defs>
-  <rect width="50" height="50" rx="12" fill="url(#g1)"/>
-  <circle cx="25" cy="25" r="18" fill="url(#g2)" opacity="0.3"/>
-  <path d="M14 12 L14 38 L26 38 C34 38 39 32 39 25 C39 18 34 12 26 12 Z M19 17 L25 17 C31 17 34 20 34 25 C34 30 31 33 25 33 L19 33 Z" fill="white"/>
-  <circle cx="36" cy="14" r="4.5" fill="url(#g3)"/>
-  <line x1="36" y1="11.5" x2="36" y2="14" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
-  <line x1="36" y1="14" x2="38" y2="15.5" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+  <rect width="50" height="50" rx="11" fill="url(#bg)"/>
+  <path d="M24 10 C15 10 8 17 8 25 C8 33 15 40 24 40 L24 35 C18 35 13 31 13 25 C13 19 18 15 24 15 Z" fill="url(#c)"/>
+  <rect x="24" y="10" width="4.5" height="30" rx="1" fill="url(#f)"/>
+  <rect x="24" y="10" width="18" height="4.5" rx="1" fill="url(#f)"/>
+  <rect x="24" y="22" width="13" height="4" rx="1" fill="url(#f)"/>
+  <circle cx="40" cy="38" r="3" fill="#38bdf8" opacity="0.6"/>
 </svg>
