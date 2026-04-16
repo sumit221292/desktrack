@@ -10,24 +10,24 @@ import { motion } from 'framer-motion';
 import { getStatusConfig } from '../utils/statusConfig';
 
 // Live break display — ticks every second when on break, shows MM:SS
-const LiveBreakDisplay = ({ baseMins = 0, activeStart }) => {
-  const [display, setDisplay] = useState('');
+// completedMins = total break mins from completed breaks (no active session)
+// activeStart = ISO start time of current active break (null if not on break)
+const LiveBreakDisplay = ({ completedMins = 0, activeStart }) => {
+  const [display, setDisplay] = useState('00:00');
   useEffect(() => {
     const tick = () => {
-      let totalSec = (baseMins || 0) * 60;
+      let totalSec = Math.max(0, completedMins || 0) * 60;
       if (activeStart) {
-        totalSec += Math.floor((Date.now() - new Date(activeStart).getTime()) / 1000);
+        totalSec += Math.max(0, Math.floor((Date.now() - new Date(activeStart).getTime()) / 1000));
       }
       const m = Math.floor(totalSec / 60);
       const s = totalSec % 60;
       setDisplay(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
     };
     tick();
-    if (activeStart) {
-      const id = setInterval(tick, 1000);
-      return () => clearInterval(id);
-    }
-  }, [baseMins, activeStart]);
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [completedMins, activeStart]);
   return <>{display}</>;
 };
 
@@ -287,31 +287,35 @@ const Dashboard = () => {
           setMyAttendance(myRec || null);
           // Sync break status from attendance data
           if (myRec) {
-            // Check INCOMPLETE status = break is currently active
             const lunchActive = myRec.lunch_status === 'INCOMPLETE';
             const teaActive = myRec.tea_status === 'INCOMPLETE';
 
+            setOnLunch(lunchActive);
+            setOnTea(teaActive);
+
+            // For active break: the API's actual_minutes includes live estimate.
+            // We need completed_mins (without current session) + live start time.
+            // completed_mins = actual_minutes when NOT active, or 0 if only 1 break that's active
             if (lunchActive) {
-              setOnLunch(true);
-              // Find the latest unended lunch start time
               setLunchStartTime(myRec.lunch_start || new Date().toISOString());
+              // actual_minutes from API includes current session estimate — use it as-is for display
+              // The countdown timer will use lunchUsedMins for COMPLETED breaks only
+              // Estimate: subtract elapsed of current session
+              const currentElapsed = myRec.lunch_start ? Math.ceil((Date.now() - new Date(myRec.lunch_start).getTime()) / 60000) : 0;
+              setLunchUsedMins(Math.max(0, (parseInt(myRec.lunch_actual_minutes) || 0) - currentElapsed));
             } else {
-              setOnLunch(false);
               setLunchStartTime(null);
+              setLunchUsedMins(parseInt(myRec.lunch_actual_minutes) || 0);
             }
 
             if (teaActive) {
-              setOnTea(true);
               setTeaStartTime(myRec.tea_start || new Date().toISOString());
+              const currentElapsed = myRec.tea_start ? Math.ceil((Date.now() - new Date(myRec.tea_start).getTime()) / 60000) : 0;
+              setTeaUsedMins(Math.max(0, (parseInt(myRec.tea_actual_minutes) || 0) - currentElapsed));
             } else {
-              setOnTea(false);
               setTeaStartTime(null);
+              setTeaUsedMins(parseInt(myRec.tea_actual_minutes) || 0);
             }
-
-            // Set already-used minutes from completed breaks
-            // If break is active, actual_minutes includes live elapsed — subtract current session
-            setLunchUsedMins(lunchActive ? Math.max(0, (parseInt(myRec.lunch_actual_minutes) || 0) - Math.ceil((Date.now() - new Date(myRec.lunch_start).getTime()) / 60000)) : (parseInt(myRec.lunch_actual_minutes) || 0));
-            setTeaUsedMins(teaActive ? Math.max(0, (parseInt(myRec.tea_actual_minutes) || 0) - Math.ceil((Date.now() - new Date(myRec.tea_start).getTime()) / 60000)) : (parseInt(myRec.tea_actual_minutes) || 0));
           }
 
           // For EMPLOYEE: override stats with personal data
@@ -470,7 +474,10 @@ const Dashboard = () => {
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{onLunch ? 'On Lunch' : onTea ? 'On Tea' : 'Break'}</p>
                 <p className={`text-sm font-bold font-mono ${onLunch || onTea ? 'text-red-600' : 'text-amber-700'}`}>
-                  <LiveBreakDisplay baseMins={myAttendance.total_break_minutes || 0} activeStart={onLunch ? lunchStartTime : onTea ? teaStartTime : null} />
+                  <LiveBreakDisplay
+                    completedMins={lunchUsedMins + teaUsedMins}
+                    activeStart={onLunch ? lunchStartTime : onTea ? teaStartTime : null}
+                  />
                 </p>
               </div>
             </div>

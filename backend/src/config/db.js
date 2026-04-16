@@ -300,14 +300,19 @@ const db = {
         }
         // [UPDATE] Attendance Sessions
         else if (q.includes('update attendance_sessions')) {
-          const sessionId = params[2];
+          // Two forms:
+          // 1. SET check_out=$1, duration_minutes=$2 WHERE id=$3 (checkout)
+          // 2. SET duration_minutes=$1 WHERE id=$2 (cap only)
+          const hasCheckout = q.includes('check_out');
+          const sessionId = hasCheckout ? params[2] : params[1];
           const index = memoryDB.attendance_sessions.findIndex(s => s.id == sessionId);
           if (index !== -1) {
-            memoryDB.attendance_sessions[index] = {
-              ...memoryDB.attendance_sessions[index],
-              check_out: toISO(params[0]),
-              duration_minutes: params[1]
-            };
+            if (hasCheckout) {
+              memoryDB.attendance_sessions[index].check_out = toISO(params[0]);
+              memoryDB.attendance_sessions[index].duration_minutes = parseInt(params[1]) || 0;
+            } else {
+              memoryDB.attendance_sessions[index].duration_minutes = parseInt(params[0]) || 0;
+            }
             saveToDisk();
             resultRows = [memoryDB.attendance_sessions[index]];
             rowCount = 1;
