@@ -9,6 +9,28 @@ import { Modal } from '../components/ui/Modal';
 import { motion } from 'framer-motion';
 import { getStatusConfig } from '../utils/statusConfig';
 
+// Live break display — ticks every second when on break, shows MM:SS
+const LiveBreakDisplay = ({ baseMins = 0, activeStart }) => {
+  const [display, setDisplay] = useState('');
+  useEffect(() => {
+    const tick = () => {
+      let totalSec = (baseMins || 0) * 60;
+      if (activeStart) {
+        totalSec += Math.floor((Date.now() - new Date(activeStart).getTime()) / 1000);
+      }
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      setDisplay(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+    };
+    tick();
+    if (activeStart) {
+      const id = setInterval(tick, 1000);
+      return () => clearInterval(id);
+    }
+  }, [baseMins, activeStart]);
+  return <>{display}</>;
+};
+
 // Live work timer for dashboard
 const DashboardLiveTimer = ({ checkIn, breakMins = 0, isLive, netMins }) => {
   const [display, setDisplay] = useState('');
@@ -265,19 +287,31 @@ const Dashboard = () => {
           setMyAttendance(myRec || null);
           // Sync break status from attendance data
           if (myRec) {
-            // Lunch: check if active (started but not ended)
-            if (myRec.lunch_start && !myRec.lunch_end) {
+            // Check INCOMPLETE status = break is currently active
+            const lunchActive = myRec.lunch_status === 'INCOMPLETE';
+            const teaActive = myRec.tea_status === 'INCOMPLETE';
+
+            if (lunchActive) {
               setOnLunch(true);
-              setLunchStartTime(myRec.lunch_start);
+              // Find the latest unended lunch start time
+              setLunchStartTime(myRec.lunch_start || new Date().toISOString());
+            } else {
+              setOnLunch(false);
+              setLunchStartTime(null);
             }
-            // Tea: check if active
-            if (myRec.tea_start && !myRec.tea_end) {
+
+            if (teaActive) {
               setOnTea(true);
-              setTeaStartTime(myRec.tea_start);
+              setTeaStartTime(myRec.tea_start || new Date().toISOString());
+            } else {
+              setOnTea(false);
+              setTeaStartTime(null);
             }
-            // Set used minutes from completed breaks
-            setLunchUsedMins(parseInt(myRec.lunch_actual_minutes) || 0);
-            setTeaUsedMins(parseInt(myRec.tea_actual_minutes) || 0);
+
+            // Set already-used minutes from completed breaks
+            // If break is active, actual_minutes includes live elapsed — subtract current session
+            setLunchUsedMins(lunchActive ? Math.max(0, (parseInt(myRec.lunch_actual_minutes) || 0) - Math.ceil((Date.now() - new Date(myRec.lunch_start).getTime()) / 60000)) : (parseInt(myRec.lunch_actual_minutes) || 0));
+            setTeaUsedMins(teaActive ? Math.max(0, (parseInt(myRec.tea_actual_minutes) || 0) - Math.ceil((Date.now() - new Date(myRec.tea_start).getTime()) / 60000)) : (parseInt(myRec.tea_actual_minutes) || 0));
           }
 
           // For EMPLOYEE: override stats with personal data
@@ -428,15 +462,15 @@ const Dashboard = () => {
 
             <div className="w-px h-10 bg-slate-200" />
 
-            {/* Break */}
+            {/* Break — live ticking when on break */}
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
-                <span className="text-amber-600 text-xs font-bold">B</span>
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${onLunch || onTea ? 'bg-red-100' : 'bg-amber-100'}`}>
+                <span className={`text-xs font-bold ${onLunch || onTea ? 'text-red-600' : 'text-amber-600'}`}>{onLunch ? '🍽️' : onTea ? '🍵' : 'B'}</span>
               </div>
               <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Break</p>
-                <p className="text-sm font-bold text-amber-700">
-                  {Math.floor((myAttendance.total_break_minutes || 0) / 60)}h {String(Math.floor((myAttendance.total_break_minutes || 0) % 60)).padStart(2, '0')}m
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{onLunch ? 'On Lunch' : onTea ? 'On Tea' : 'Break'}</p>
+                <p className={`text-sm font-bold font-mono ${onLunch || onTea ? 'text-red-600' : 'text-amber-700'}`}>
+                  <LiveBreakDisplay baseMins={myAttendance.total_break_minutes || 0} activeStart={onLunch ? lunchStartTime : onTea ? teaStartTime : null} />
                 </p>
               </div>
             </div>
