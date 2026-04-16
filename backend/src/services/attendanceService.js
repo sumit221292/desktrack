@@ -772,12 +772,15 @@ const getDailyAttendance = async (companyId, dateStr) => {
       const empEvents = events.rows.filter(e => e.employee_id == emp.id);
       const { daily_attendance } = calculateAttendance({ ...shift, employee_id: emp.id, timezone: companyTz, lunch_allowed_minutes: brkCfg.lunch_allowed_minutes || 45, tea_allowed_minutes: brkCfg.tea_allowed_minutes || 15 }, checkIn, checkOut, empEvents, empSessions);
 
-      // Expected checkout = check-in + shift total working hours + excess break time
+      // Expected checkout = check-in + shift working hours + allowed break + excess break
+      // e.g. check-in 10:00 + 9h work + 70min allowed break = 20:10
+      // If break exceeds 70min by 5min → 20:15
       const shiftHrs = parseFloat(shift?.total_working_hours || 9);
       const maxBreakMins = brkCfg.max_break_minutes || 70;
       const breakMins = daily_attendance.total_break_minutes || 0;
       const excessBreakMins = Math.max(0, breakMins - maxBreakMins);
-      const expectedOutISO = new Date(checkIn.getTime() + (shiftHrs * 60 + excessBreakMins) * 60 * 1000);
+      const totalMinsFromCheckIn = (shiftHrs * 60) + maxBreakMins + excessBreakMins;
+      const expectedOutISO = new Date(checkIn.getTime() + totalMinsFromCheckIn * 60 * 1000);
 
       // Late minutes: diff between check_in and shift_start_time (IST)
       let lateMinutes = 0;
