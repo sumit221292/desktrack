@@ -89,21 +89,6 @@ router.post('/event', async (req, res) => {
   }
 });
 
-// Cleanup: Delete all attendance data for an employee
-router.delete('/cleanup/:employeeId', async (req, res) => {
-  try {
-    const companyId = req.tenantId || 1;
-    const empId = req.params.employeeId;
-    const { query } = require('../config/db');
-    await query('DELETE FROM attendance_events WHERE employee_id = $1 AND company_id = $2', [empId, companyId]);
-    await query('DELETE FROM attendance_sessions WHERE employee_id = $1 AND company_id = $2', [empId, companyId]);
-    await query('DELETE FROM attendance WHERE employee_id = $1 AND company_id = $2', [empId, companyId]);
-    res.json({ message: `Cleared all attendance data for employee ${empId}` });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // Update Attendance (Edit/Remarks)
 router.put('/:id', async (req, res) => {
   try {
