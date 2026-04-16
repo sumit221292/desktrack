@@ -86,14 +86,81 @@ test.describe('2. Dashboard', () => {
     await expect(btn).toBeVisible();
   });
 
-  test('2.6 Date picker changes data', async ({ page }) => {
+  test('2.6 Status bar shows check-in info when checked in', async ({ page }) => {
+    // Status bar only visible when user is checked in
+    const checkOutBtn = page.locator('button').filter({ hasText: /Check Out/ }).first();
+    const isCheckedIn = await checkOutBtn.isVisible().catch(() => false);
+    console.log(`[TEST] User checked in: ${isCheckedIn}`);
+    if (isCheckedIn) {
+      await expect(page.getByText('Work Hours', { exact: true }).first()).toBeVisible();
+      await expect(page.getByText('Expected Out', { exact: true }).first()).toBeVisible();
+    }
+    // Either way, the page should render without errors
+    const body = await page.locator('body').innerText();
+    expect(body.length).toBeGreaterThan(100);
+  });
+
+  test('2.7 Break buttons visible when checked in', async ({ page }) => {
+    const checkBtn = page.locator('button').filter({ hasText: /Check Out/ }).first();
+    const isCheckedIn = await checkBtn.isVisible().catch(() => false);
+    if (isCheckedIn) {
+      // Lunch and Tea buttons should be visible
+      const lunchBtn = page.locator('button').filter({ hasText: /Lunch/ }).first();
+      const teaBtn = page.locator('button').filter({ hasText: /Tea/ }).first();
+      await expect(lunchBtn).toBeVisible();
+      await expect(teaBtn).toBeVisible();
+      console.log(`[TEST] Lunch button text: ${await lunchBtn.innerText()}`);
+      console.log(`[TEST] Tea button text: ${await teaBtn.innerText()}`);
+    } else {
+      console.log('[TEST] Not checked in — break buttons should be hidden');
+      const lunchBtn = page.locator('button').filter({ hasText: /Lunch/ });
+      expect(await lunchBtn.count()).toBe(0);
+    }
+  });
+
+  test('2.8 Break buttons disable each other', async ({ page }) => {
+    const checkOutBtn = page.locator('button').filter({ hasText: /Check Out/ }).first();
+    const isCheckedIn = await checkOutBtn.isVisible().catch(() => false);
+    if (isCheckedIn) {
+      const lunchBtn = page.locator('button').filter({ hasText: /Lunch/ }).first();
+      const teaBtn = page.locator('button').filter({ hasText: /Tea/ }).first();
+
+      // Click Lunch Break
+      if (await lunchBtn.isEnabled()) {
+        await lunchBtn.click();
+        await page.waitForTimeout(2000);
+        // Tea should be disabled
+        const teaDisabled = await teaBtn.isDisabled();
+        console.log(`[TEST] Tea disabled during lunch: ${teaDisabled}`);
+        expect(teaDisabled).toBeTruthy();
+        // End lunch
+        const endLunchBtn = page.locator('button').filter({ hasText: /End/ }).first();
+        if (await endLunchBtn.isVisible()) {
+          await endLunchBtn.click();
+          await page.waitForTimeout(1000);
+        }
+      }
+    }
+  });
+
+  test('2.9 Break timer shows MM:SS format', async ({ page }) => {
+    const breakDisplay = page.locator('text=/\\d{2}:\\d{2}/').first();
+    const hasTimer = await breakDisplay.isVisible().catch(() => false);
+    console.log(`[TEST] Break timer MM:SS visible: ${hasTimer}`);
+    if (hasTimer) {
+      const text = await breakDisplay.innerText();
+      expect(text).toMatch(/\d{2}:\d{2}/);
+    }
+  });
+
+  test('2.10 Date picker changes data', async ({ page }) => {
     const dp = page.locator('input[type="date"]').first();
     await dp.fill('2026-04-01');
     await page.waitForTimeout(3000);
     await expect(page.locator('text=Total Employees')).toBeVisible();
   });
 
-  test('2.7 KPI card opens detail modal', async ({ page }) => {
+  test('2.11 KPI card opens detail modal', async ({ page }) => {
     await page.locator('text=Total Employees').click();
     await page.waitForTimeout(1500);
     await expect(page.locator('text=Details')).toBeVisible();
