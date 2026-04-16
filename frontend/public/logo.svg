@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 115" fill="none">
+  <defs>
+    <linearGradient id="blue" x1="0" y1="0" x2="50" y2="115">
+      <stop offset="0%" stop-color="#42A5F5"/>
+      <stop offset="100%" stop-color="#1E88E5"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="50" y1="20" x2="80" y2="100">
+      <stop offset="0%" stop-color="#FFA726"/>
+      <stop offset="100%" stop-color="#FB8C00"/>
+    </linearGradient>
+  </defs>
+  <!-- Hexagon outline (blue) -->
+  <polygon points="50,2 95,27 95,77 50,102 5,77 5,27" fill="url(#blue)"/>
+  <!-- Inner white to make C shape -->
+  <polygon points="50,18 78,34 78,70 50,86 22,70 22,34" fill="white"/>
+  <!-- Left bar of C (blue) -->
+  <rect x="22" y="34" width="14" height="36" fill="url(#blue)"/>
+  <!-- Top bar of C (blue) -->
+  <polygon points="22,34 50,18 78,34 78,40 50,25 36,34" fill="url(#blue)"/>
+  <!-- Bottom bar of C (blue) -->
+  <polygon points="22,70 50,86 78,70 78,64 50,79 36,70" fill="url(#blue)"/>
+  <!-- F letter (orange) - vertical bar -->
+  <rect x="45" y="30" width="12" height="48" fill="url(#orange)"/>
+  <!-- F letter (orange) - top horizontal -->
+  <rect x="45" y="30" width="30" height="10" fill="url(#orange)"/>
+  <!-- F letter (orange) - middle horizontal -->
+  <rect x="45" y="49" width="22" height="9" fill="url(#orange)"/>
+  <!-- Small blue triangle at bottom right -->
+  <polygon points="57,78 70,70 57,70" fill="#1E88E5"/>
+</svg>

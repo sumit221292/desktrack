@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { motion, AnimatePresence } from 'framer-motion';
+import Logo from '../components/ui/Logo';
 
 const FeatureItem = ({ icon: Icon, title, description, delay }) => (
   <motion.div 
@@ -102,9 +103,9 @@ const Login = () => {
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-primary-600 mb-8 shadow-[0_0_30px_rgba(37,99,235,0.4)]"
+            className="inline-flex items-center justify-center mb-8"
           >
-            <ShieldCheck size={40} className="text-white" />
+            <Logo size={72} />
           </motion.div>
           <motion.h1 
             initial={{ opacity: 0, y: 20 }}

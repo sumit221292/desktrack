@@ -7,6 +7,7 @@ import {
   ChevronLeft, ChevronRight, TrendingUp
 } from 'lucide-react';
 import { cn } from '../ui/Button';
+import Logo from '../ui/Logo';
 
 const Sidebar = () => {
   const { user, logout, enabledModules, hasPermission } = useAuth();
@@ -37,16 +38,12 @@ const Sidebar = () => {
       <div className={cn("p-6 flex items-center justify-between", collapsed && "justify-center p-4")}>
         {!collapsed && (
           <div className="flex items-center space-x-2 overflow-hidden">
-            <div className="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center shrink-0">
-               <span className="text-white font-black text-lg font-display">D</span>
-            </div>
+            <Logo size={30} className="shrink-0" />
             <h1 className="text-xl font-bold text-slate-900 tracking-tight font-display whitespace-nowrap">DeskTrack</h1>
           </div>
         )}
         {collapsed && (
-          <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center shrink-0 shadow-lg shadow-primary-500/30">
-            <span className="text-white font-black text-xl font-display">D</span>
-          </div>
+          <Logo size={36} className="shrink-0" />
         )}
       </div>
 
