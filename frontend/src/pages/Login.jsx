@@ -103,9 +103,9 @@ const Login = () => {
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="inline-flex items-center justify-center w-24 h-24 rounded-3xl bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950 mb-8 shadow-[0_0_40px_rgba(0,0,0,0.3)]"
+            className="inline-flex items-center justify-center mb-8"
           >
-            <Logo size={60} />
+            <Logo size={80} className="drop-shadow-[0_0_30px_rgba(99,102,241,0.5)]" />
           </motion.div>
           <motion.h1 
             initial={{ opacity: 0, y: 20 }}
