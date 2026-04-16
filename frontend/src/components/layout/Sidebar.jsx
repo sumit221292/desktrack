@@ -37,13 +37,17 @@ const Sidebar = () => {
     )}>
       <div className={cn("p-6 flex items-center justify-between", collapsed && "justify-center p-4")}>
         {!collapsed && (
-          <div className="flex items-center space-x-2 overflow-hidden">
-            <Logo size={30} className="shrink-0" />
+          <div className="flex items-center space-x-2.5 overflow-hidden">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center shrink-0 shadow-md">
+              <Logo size={24} />
+            </div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight font-display whitespace-nowrap">DeskTrack</h1>
           </div>
         )}
         {collapsed && (
-          <Logo size={36} className="shrink-0" />
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center shrink-0 shadow-lg">
+            <Logo size={28} />
+          </div>
         )}
       </div>
 

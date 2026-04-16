@@ -1,30 +1,32 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 115" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 270" fill="none">
   <defs>
-    <linearGradient id="blue" x1="0" y1="0" x2="50" y2="115">
-      <stop offset="0%" stop-color="#42A5F5"/>
-      <stop offset="100%" stop-color="#1E88E5"/>
+    <linearGradient id="b" x1="20" y1="0" x2="220" y2="270">
+      <stop offset="0%" stop-color="#5BB8F5"/>
+      <stop offset="100%" stop-color="#1A78D2"/>
     </linearGradient>
-    <linearGradient id="orange" x1="50" y1="20" x2="80" y2="100">
-      <stop offset="0%" stop-color="#FFA726"/>
-      <stop offset="100%" stop-color="#FB8C00"/>
+    <linearGradient id="o" x1="120" y1="50" x2="185" y2="230">
+      <stop offset="0%" stop-color="#FFB74D"/>
+      <stop offset="100%" stop-color="#F57C00"/>
     </linearGradient>
   </defs>
-  <!-- Hexagon outline (blue) -->
-  <polygon points="50,2 95,27 95,77 50,102 5,77 5,27" fill="url(#blue)"/>
-  <!-- Inner white to make C shape -->
-  <polygon points="50,18 78,34 78,70 50,86 22,70 22,34" fill="white"/>
-  <!-- Left bar of C (blue) -->
-  <rect x="22" y="34" width="14" height="36" fill="url(#blue)"/>
-  <!-- Top bar of C (blue) -->
-  <polygon points="22,34 50,18 78,34 78,40 50,25 36,34" fill="url(#blue)"/>
-  <!-- Bottom bar of C (blue) -->
-  <polygon points="22,70 50,86 78,70 78,64 50,79 36,70" fill="url(#blue)"/>
-  <!-- F letter (orange) - vertical bar -->
-  <rect x="45" y="30" width="12" height="48" fill="url(#orange)"/>
-  <!-- F letter (orange) - top horizontal -->
-  <rect x="45" y="30" width="30" height="10" fill="url(#orange)"/>
-  <!-- F letter (orange) - middle horizontal -->
-  <rect x="45" y="49" width="22" height="9" fill="url(#orange)"/>
-  <!-- Small blue triangle at bottom right -->
-  <polygon points="57,78 70,70 57,70" fill="#1E88E5"/>
+  <!-- Dark background -->
+  <rect width="240" height="270" rx="40" fill="#1e293b"/>
+  <!-- Hexagon -->
+  <polygon points="120,24 210,74 210,174 120,224 30,174 30,74" fill="url(#b)"/>
+  <!-- Inner white C -->
+  <polygon points="120,60 180,94 180,154 120,188 60,154 60,94" fill="white"/>
+  <!-- C left -->
+  <polygon points="60,94 60,154 80,164 80,84" fill="url(#b)"/>
+  <!-- C top -->
+  <polygon points="60,94 120,60 180,94 180,104 120,72 80,94 80,84" fill="url(#b)"/>
+  <!-- C bottom -->
+  <polygon points="60,154 120,188 180,154 180,144 120,176 80,154 80,164" fill="url(#b)"/>
+  <!-- F vertical -->
+  <rect x="115" y="80" width="24" height="100" rx="2" fill="url(#o)"/>
+  <!-- F top -->
+  <rect x="115" y="80" width="58" height="22" rx="2" fill="url(#o)"/>
+  <!-- F middle -->
+  <rect x="115" y="120" width="42" height="18" rx="2" fill="url(#o)"/>
+  <!-- Blue triangle -->
+  <polygon points="139,180 165,164 139,164" fill="#1A78D2"/>
 </svg>
