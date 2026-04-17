@@ -47,9 +47,13 @@ const getBreakConfig = async (companyId) => {
 
 /**
  * Auto-close missed checkouts from previous days.
- * 1. Closes any open sessions from before today
- * 2. Caps session duration to max shift hours (no cross-day bloat)
- * 3. Sets attendance status to HALF DAY / ABSENT for missed checkouts
+ *
+ * Rules:
+ * - Auto-close time: 23:59:59 IST (end of that calendar day)
+ * - Orphan sessions (never checked out by user): 0 work credit
+ * - Only properly checked-out sessions count toward work time
+ * - Status: ABSENT if < half shift, HALF DAY if >= half shift
+ * - Flag: MISSED_CHECKOUT
  */
 const closeMissedCheckouts = async (companyId) => {
   try {
@@ -57,32 +61,27 @@ const closeMissedCheckouts = async (companyId) => {
     const shifts = await query('SELECT * FROM shifts WHERE company_id = $1', [companyId]);
     const defaultShift = shifts.rows[0] || { shift_end_time: '19:00:00', total_working_hours: 9 };
     const maxShiftMins = (parseFloat(defaultShift.total_working_hours) || 9) * 60;
+    const tzOffset = getTzOffset(await getCompanyTimezone(companyId));
 
-    // 1. Close ALL open sessions from before today (regardless of attendance status)
-    const allSessions = await query(
-      'SELECT * FROM attendance_sessions WHERE company_id = $1',
-      [companyId]
-    );
+    // 1. Close ALL open sessions from before today
+    const allSessions = await query('SELECT * FROM attendance_sessions WHERE company_id = $1', [companyId]);
     for (const sess of allSessions.rows) {
       if (sess.check_out) {
-        // Cap existing sessions — if duration > max shift, fix it
+        // Cap existing sessions to max shift hours
         const dur = parseInt(sess.duration_minutes) || 0;
         if (dur > maxShiftMins) {
           await query('UPDATE attendance_sessions SET duration_minutes = $1 WHERE id = $2', [maxShiftMins, sess.id]);
         }
         continue;
       }
-      // Open session — check if from before today
       const sessDate = String(sess.check_in).split('T')[0];
       if (sessDate >= today) continue; // today's session, leave open
 
-      // Close at shift end time of that day
-      const endTime = String(defaultShift.shift_end_time || '19:00:00').substring(0, 8);
-      const closeTime = new Date(`${sessDate}T${endTime}`);
-      const dur = Math.min(maxShiftMins, Math.max(1, Math.ceil((closeTime - new Date(sess.check_in)) / 60000)));
-      await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = $2 WHERE id = $3',
-        [closeTime, dur, sess.id]);
-      console.log(`[AutoClose] Closed orphan session ${sess.id} from ${sessDate}, dur=${dur}min`);
+      // Orphan session: close at 23:59:59 IST with 0 duration (no work credit)
+      const closeTime = new Date(`${sessDate}T23:59:59${tzOffset}`);
+      await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = 0 WHERE id = $2',
+        [closeTime, sess.id]);
+      console.log(`[AutoClose] Orphan session ${sess.id} from ${sessDate} — closed with 0 credit (missed checkout)`);
     }
 
     // 2. Close attendance records from before today that have no checkout
@@ -92,29 +91,41 @@ const closeMissedCheckouts = async (companyId) => {
       const attDate = String(rec.attendance_date || rec.check_in || '').split('T')[0];
       if (!attDate || attDate >= today) continue;
 
-      const endTime = String(defaultShift.shift_end_time || '19:00:00').substring(0, 8);
-      const checkOutTime = new Date(`${attDate}T${endTime}`);
+      // Close at 23:59:59 IST of that day
+      const checkOutTime = new Date(`${attDate}T23:59:59${tzOffset}`);
 
-      // Sum capped session durations for this attendance
+      // Only count sessions that were PROPERLY checked out by the user (not auto-closed orphans)
       const sessions = await query('SELECT * FROM attendance_sessions WHERE attendance_id = $1', [rec.id]);
-      let totalMins = 0;
+      let workedMins = 0;
       for (const s of sessions.rows) {
-        totalMins += Math.min(maxShiftMins, parseInt(s.duration_minutes) || 0);
+        const dur = parseInt(s.duration_minutes) || 0;
+        // Only count sessions with actual duration (orphans have 0)
+        if (dur > 0) workedMins += Math.min(maxShiftMins, dur);
       }
-      totalMins = Math.min(totalMins, maxShiftMins);
 
       const halfShift = maxShiftMins / 2;
-      const status = totalMins >= halfShift ? 'INCOMPLETE' : 'ABSENT';
+      let status, statusLabel;
+      if (workedMins === 0) {
+        status = 'ABSENT';
+        statusLabel = 'ABSENT';
+      } else if (workedMins < halfShift) {
+        status = 'ABSENT';
+        statusLabel = 'ABSENT';
+      } else {
+        status = 'INCOMPLETE';
+        statusLabel = 'HALFDAY';
+      }
 
       await query(
         `UPDATE attendance SET check_out = $1, last_check_out = $1, status = $2,
          net_work_minutes = $3, gross_minutes = $3, flags = $4, ai_summary = $5
          WHERE id = $6 AND company_id = $7`,
-        [checkOutTime, status, totalMins,
-         JSON.stringify(['MISSED_CHECKOUT', totalMins >= halfShift ? 'HALFDAY' : 'ABSENT']),
-         `Missed checkout. Auto-closed at shift end.`, rec.id, companyId]
+        [checkOutTime, status, workedMins,
+         JSON.stringify(['MISSED_CHECKOUT', statusLabel]),
+         `Checkout missed. Auto-closed at 23:59 IST. Worked: ${workedMins}min. Status: ${statusLabel}.`,
+         rec.id, companyId]
       );
-      console.log(`[AutoClose] Closed attendance ${rec.id} on ${attDate} — ${status}, ${totalMins}min`);
+      console.log(`[AutoClose] Attendance ${rec.id} on ${attDate} — ${statusLabel}, worked=${workedMins}min`);
     }
   } catch (e) {
     console.error('[AutoClose] Error:', e.message);
