@@ -422,175 +422,105 @@ const Dashboard = () => {
         <CelebrationOverlay celebrations={celebrations} onDismiss={() => setShowCelebration(false)} />
       )}
 
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-bold text-slate-900 mb-1 font-display tracking-tight">Welcome Back!</h2>
-          <p className="text-slate-500 font-medium text-sm">Here's what's happening at your company today.</p>
+      <header className="space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-bold text-slate-900 mb-1 font-display tracking-tight">Welcome Back!</h2>
+            <p className="text-slate-500 font-medium text-sm">Here's what's happening at your company today.</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <style dangerouslySetInnerHTML={{ __html: `
+              @keyframes intense-blink {
+                0%, 100% { background-color: rgb(37 99 235); box-shadow: 0 0 0 0px rgba(37, 99, 235, 0.7); }
+                50% { background-color: rgb(29 78 216); box-shadow: 0 0 15px 5px rgba(37, 99, 235, 0.4); }
+              }
+              @keyframes spin-clock { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            `}} />
+            <button
+              onClick={handleCheckInOut}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg transition-all ${
+                isCheckedIn
+                  ? 'bg-alert-500 text-white hover:bg-alert-600'
+                  : 'bg-primary-600 text-white hover:bg-primary-700 animate-[intense-blink_1.5s_ease-in-out_infinite] ring-2 ring-primary-500 ring-offset-2 ring-offset-slate-50'
+              }`}
+            >
+              {isCheckedIn ? <Clock size={16} style={{ animation: 'spin-clock 3s linear infinite' }} /> : <Clock size={16} />}
+              {isCheckedIn ? 'Check Out' : 'Check In'}
+            </button>
+            <div className="relative group flex items-center bg-white px-2 py-1.5 rounded-xl border border-slate-200 shadow-sm text-sm font-medium text-slate-600">
+              <CalendarIcon size={16} className="text-primary-500 ml-2 absolute pointer-events-none" />
+              <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)}
+                className="pl-8 pr-2 py-1 bg-transparent border-none focus:ring-0 outline-none text-slate-700 cursor-pointer" style={{ colorScheme: 'light' }} />
+            </div>
+          </div>
         </div>
 
-        {/* Today's Attendance Status Bar */}
+        {/* Attendance Status Strip — clean single row */}
         {myAttendance && (
-          <div className="flex items-center gap-4 bg-white border border-slate-200 rounded-xl px-5 py-3 shadow-sm">
-            {/* Check In */}
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
-                <Clock size={15} className="text-emerald-600" />
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+            <div className="flex items-center justify-between gap-6 flex-wrap">
+              {/* Left: Time info */}
+              <div className="flex items-center gap-6">
+                <div className="text-center">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">In</p>
+                  <p className="text-lg font-bold text-emerald-600">
+                    {new Date(myAttendance.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}
+                  </p>
+                </div>
+                <div className="text-slate-300">→</div>
+                <div className="text-center">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Expected Out</p>
+                  <p className="text-lg font-bold text-slate-700">
+                    {myAttendance.expectedCheckout && myAttendance.expectedCheckout !== '-'
+                      ? new Date(myAttendance.expectedCheckout).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })
+                      : '-'}
+                  </p>
+                </div>
+                <div className="w-px h-10 bg-slate-200" />
+                <div className="text-center">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Working</p>
+                  <p className="text-lg font-bold text-blue-600 font-mono">
+                    <DashboardLiveTimer checkIn={myAttendance.check_in} breakMins={myAttendance.total_break_minutes || 0} isLive={myAttendance.is_checked_in} netMins={myAttendance.net_work_minutes} />
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Break</p>
+                  <p className={`text-lg font-bold font-mono ${onLunch || onTea ? 'text-red-500' : 'text-amber-600'}`}>
+                    <LiveBreakDisplay completedMins={lunchUsedMins + teaUsedMins} activeStart={onLunch ? lunchStartTime : onTea ? teaStartTime : null} />
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Check In</p>
-                <p className="text-sm font-bold text-emerald-700">
-                  {new Date(myAttendance.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}
-                </p>
-              </div>
-            </div>
 
-            <div className="w-px h-10 bg-slate-200" />
-
-            {/* Work Hours - Live */}
-            <div className="flex items-center gap-2">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${myAttendance.is_checked_in ? 'bg-blue-100' : 'bg-slate-100'}`}>
-                <TrendingUp size={15} className={myAttendance.is_checked_in ? 'text-blue-600' : 'text-slate-500'} />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Work Hours</p>
-                <p className={`text-sm font-bold ${myAttendance.is_checked_in ? 'text-blue-700' : 'text-slate-700'}`}>
-                  <DashboardLiveTimer checkIn={myAttendance.check_in} breakMins={myAttendance.total_break_minutes || 0} isLive={myAttendance.is_checked_in} netMins={myAttendance.net_work_minutes} />
-                </p>
-              </div>
-            </div>
-
-            <div className="w-px h-10 bg-slate-200" />
-
-            {/* Break — live ticking when on break */}
-            <div className="flex items-center gap-2">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${onLunch || onTea ? 'bg-red-100' : 'bg-amber-100'}`}>
-                <span className={`text-xs font-bold ${onLunch || onTea ? 'text-red-600' : 'text-amber-600'}`}>{onLunch ? '🍽️' : onTea ? '🍵' : 'B'}</span>
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{onLunch ? 'On Lunch' : onTea ? 'On Tea' : 'Break'}</p>
-                <p className={`text-sm font-bold font-mono ${onLunch || onTea ? 'text-red-600' : 'text-amber-700'}`}>
-                  <LiveBreakDisplay
-                    completedMins={lunchUsedMins + teaUsedMins}
-                    activeStart={onLunch ? lunchStartTime : onTea ? teaStartTime : null}
-                  />
-                </p>
-              </div>
-            </div>
-
-            <div className="w-px h-10 bg-slate-200" />
-
-            {/* Expected Out */}
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
-                <Clock size={15} className="text-purple-600" />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Expected Out</p>
-                <p className="text-sm font-bold text-purple-700">
-                  {myAttendance.expectedCheckout && myAttendance.expectedCheckout !== '-'
-                    ? new Date(myAttendance.expectedCheckout).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })
-                    : '-'}
-                </p>
-              </div>
-            </div>
-
-            <div className="w-px h-10 bg-slate-200" />
-
-            {/* Check Out / Status */}
-            <div className="flex items-center gap-2">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${myAttendance.check_out ? 'bg-red-100' : 'bg-blue-50'}`}>
-                <CheckCircle size={15} className={myAttendance.check_out ? 'text-red-500' : 'text-blue-400'} />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Check Out</p>
-                <p className={`text-sm font-bold ${myAttendance.check_out ? 'text-red-600' : 'text-blue-500'}`}>
-                  {myAttendance.check_out
-                    ? new Date(myAttendance.check_out).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })
-                    : <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />Working</span>
-                  }
-                </p>
-              </div>
+              {/* Right: Break buttons */}
+              {isCheckedIn && (
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const lunchCD = getBreakCountdown('LUNCH');
+                    const teaCD = getBreakCountdown('TEA');
+                    return (
+                      <>
+                        <button onClick={() => handleBreak('LUNCH')} disabled={onTea}
+                          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-bold text-xs transition-all
+                            ${onTea ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400' :
+                              onLunch ? (lunchCD.exceeded ? 'bg-red-500 text-white animate-pulse' : 'bg-orange-500 text-white')
+                              : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'}`}>
+                          🍽️ {onLunch ? <><span className="font-mono">{fmtCountdown(lunchCD.remaining)}</span></> : <>Lunch</>}
+                        </button>
+                        <button onClick={() => handleBreak('TEA')} disabled={onLunch}
+                          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-bold text-xs transition-all
+                            ${onLunch ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400' :
+                              onTea ? (teaCD.exceeded ? 'bg-red-500 text-white animate-pulse' : 'bg-teal-500 text-white')
+                              : 'bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100'}`}>
+                          🍵 {onTea ? <><span className="font-mono">{fmtCountdown(teaCD.remaining)}</span></> : <>Tea</>}
+                        </button>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           </div>
         )}
-
-        <div className="flex flex-col sm:flex-row items-center gap-3">
-          <style dangerouslySetInnerHTML={{ __html: `
-            @keyframes intense-blink {
-              0%, 100% { background-color: rgb(37 99 235); box-shadow: 0 0 0 0px rgba(37, 99, 235, 0.7); }
-              50% { background-color: rgb(29 78 216); box-shadow: 0 0 15px 5px rgba(37, 99, 235, 0.4); }
-            }
-            @keyframes spin-clock {
-              0% { transform: rotate(0deg); }
-              100% { transform: rotate(360deg); }
-            }
-          `}} />
-          <button
-            onClick={handleCheckInOut}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm shadow-lg transition-all ${
-              isCheckedIn
-                ? 'bg-alert-500 text-white hover:bg-alert-600'
-                : 'bg-primary-600 text-white hover:bg-primary-700 animate-[intense-blink_1.5s_ease-in-out_infinite] ring-2 ring-primary-500 ring-offset-2 ring-offset-slate-50'
-            }`}
-          >
-            {isCheckedIn
-              ? <Clock size={16} style={{ animation: 'spin-clock 3s linear infinite' }} />
-              : <Clock size={16} />
-            }
-            {isCheckedIn ? 'Check Out Now' : 'Check In Now'}
-          </button>
-
-          {/* Break Buttons — visible only when checked in */}
-          {isCheckedIn && (
-            <>
-              {(() => {
-                const lunchCD = getBreakCountdown('LUNCH');
-                const teaCD = getBreakCountdown('TEA');
-                return (
-                  <>
-                    <button
-                      onClick={() => handleBreak('LUNCH')}
-                      disabled={onTea}
-                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs shadow-sm transition-all
-                        ${onTea ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400 border border-slate-200' :
-                          onLunch ? (lunchCD.exceeded ? 'bg-red-500 text-white hover:bg-red-600 animate-pulse' : 'bg-orange-500 text-white hover:bg-orange-600')
-                          : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'}`}
-                      title={`Lunch: ${lunchUsedMins}/${lunchAllowed} min used`}
-                    >
-                      🍽️ {onLunch
-                        ? <><span className={`font-mono ${lunchCD.exceeded ? 'text-yellow-200' : ''}`}>{fmtCountdown(lunchCD.remaining)}</span> End</>
-                        : <>Lunch <span className="font-mono text-[10px] opacity-70">{lunchUsedMins}/{lunchAllowed}m</span></>}
-                    </button>
-                    <button
-                      onClick={() => handleBreak('TEA')}
-                      disabled={onLunch}
-                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs shadow-sm transition-all
-                        ${onLunch ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400 border border-slate-200' :
-                          onTea ? (teaCD.exceeded ? 'bg-red-500 text-white hover:bg-red-600 animate-pulse' : 'bg-teal-500 text-white hover:bg-teal-600')
-                          : 'bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100'}`}
-                      title={`Tea: ${teaUsedMins}/${teaAllowed} min used`}
-                    >
-                      🍵 {onTea
-                        ? <><span className={`font-mono ${teaCD.exceeded ? 'text-yellow-200' : ''}`}>{fmtCountdown(teaCD.remaining)}</span> End</>
-                        : <>Tea <span className="font-mono text-[10px] opacity-70">{teaUsedMins}/{teaAllowed}m</span></>}
-                    </button>
-                  </>
-                );
-              })()}
-            </>
-          )}
-
-          <div className="relative group flex items-center bg-white px-2 py-1.5 rounded-xl border border-slate-200 shadow-sm text-sm font-medium text-slate-600 focus-within:ring-2 focus-within:ring-primary-500/20 focus-within:border-primary-500 transition-all cursor-pointer">
-            <CalendarIcon size={16} className="text-primary-500 ml-2 absolute pointer-events-none" />
-            <input 
-              type="date" 
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="pl-8 pr-2 py-1 bg-transparent border-none focus:ring-0 outline-none text-slate-700 cursor-pointer w-full appearance-none relative z-10"
-              style={{ colorScheme: 'light' }}
-            />
-          </div>
-        </div>
       </header>
 
       <motion.section 
