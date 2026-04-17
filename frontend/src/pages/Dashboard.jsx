@@ -9,20 +9,19 @@ import { Modal } from '../components/ui/Modal';
 import { motion } from 'framer-motion';
 import { getStatusConfig } from '../utils/statusConfig';
 
-// Live break display — ticks every second when on break, shows MM:SS
-// completedMins = total break mins from completed breaks (no active session)
-// activeStart = ISO start time of current active break (null if not on break)
+// Live break display — ticks every second, shows HH:MM:SS
 const LiveBreakDisplay = ({ completedMins = 0, activeStart }) => {
-  const [display, setDisplay] = useState('00:00');
+  const [display, setDisplay] = useState('00:00:00');
   useEffect(() => {
     const tick = () => {
       let totalSec = Math.max(0, completedMins || 0) * 60;
       if (activeStart) {
         totalSec += Math.max(0, Math.floor((Date.now() - new Date(activeStart).getTime()) / 1000));
       }
-      const m = Math.floor(totalSec / 60);
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
       const s = totalSec % 60;
-      setDisplay(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+      setDisplay(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`);
     };
     tick();
     const id = setInterval(tick, 1000);
@@ -492,9 +491,9 @@ const Dashboard = () => {
                       <LiveBreakDisplay completedMins={lunchUsedMins + teaUsedMins} activeStart={onLunch ? lunchStartTime : onTea ? teaStartTime : null} />
                     </p>
                   </div>
-                  <div className="flex flex-col gap-0.5 text-[10px]">
-                    <span className="text-orange-600 font-bold">🍽️ Lunch: {lunchUsedMins}m / {lunchAllowed}m</span>
-                    <span className="text-teal-600 font-bold">🍵 Tea: {teaUsedMins}m / {teaAllowed}m</span>
+                  <div className="flex flex-col gap-0.5 text-[10px] font-mono">
+                    <span className="text-orange-600 font-bold">🍽️ {String(Math.floor(lunchUsedMins/60)).padStart(2,'0')}:{String(lunchUsedMins%60).padStart(2,'0')}:00 / {String(Math.floor(lunchAllowed/60)).padStart(2,'0')}:{String(lunchAllowed%60).padStart(2,'0')}:00</span>
+                    <span className="text-teal-600 font-bold">🍵 {String(Math.floor(teaUsedMins/60)).padStart(2,'0')}:{String(teaUsedMins%60).padStart(2,'0')}:00 / {String(Math.floor(teaAllowed/60)).padStart(2,'0')}:{String(teaAllowed%60).padStart(2,'0')}:00</span>
                   </div>
                 </div>
               </div>
