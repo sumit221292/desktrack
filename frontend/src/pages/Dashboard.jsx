@@ -455,20 +455,20 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Attendance Status Strip — clean single row */}
+        {/* Attendance Status Strip */}
         {myAttendance && (
           <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-            <div className="flex items-center justify-between gap-6 flex-wrap">
-              {/* Left: Time info */}
-              <div className="flex items-center gap-6">
-                <div className="text-center">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              {/* Time info */}
+              <div className="flex items-center gap-5">
+                <div className="text-center min-w-[70px]">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">In</p>
                   <p className="text-lg font-bold text-emerald-600">
                     {new Date(myAttendance.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}
                   </p>
                 </div>
-                <div className="text-slate-300">→</div>
-                <div className="text-center">
+                <div className="text-slate-300 text-lg">→</div>
+                <div className="text-center min-w-[70px]">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Expected Out</p>
                   <p className="text-lg font-bold text-slate-700">
                     {myAttendance.expectedCheckout && myAttendance.expectedCheckout !== '-'
@@ -476,22 +476,30 @@ const Dashboard = () => {
                       : '-'}
                   </p>
                 </div>
-                <div className="w-px h-10 bg-slate-200" />
-                <div className="text-center">
+                <div className="w-px h-12 bg-slate-200" />
+                <div className="text-center min-w-[70px]">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Working</p>
                   <p className="text-lg font-bold text-blue-600 font-mono">
                     <DashboardLiveTimer checkIn={myAttendance.check_in} breakMins={myAttendance.total_break_minutes || 0} isLive={myAttendance.is_checked_in} netMins={myAttendance.net_work_minutes} />
                   </p>
                 </div>
-                <div className="text-center">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Break</p>
-                  <p className={`text-lg font-bold font-mono ${onLunch || onTea ? 'text-red-500' : 'text-amber-600'}`}>
-                    <LiveBreakDisplay completedMins={lunchUsedMins + teaUsedMins} activeStart={onLunch ? lunchStartTime : onTea ? teaStartTime : null} />
-                  </p>
+                <div className="w-px h-12 bg-slate-200" />
+                {/* Break breakdown */}
+                <div className="flex items-center gap-3">
+                  <div className="text-center">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Break</p>
+                    <p className={`text-lg font-bold font-mono ${onLunch || onTea ? 'text-red-500' : 'text-amber-600'}`}>
+                      <LiveBreakDisplay completedMins={lunchUsedMins + teaUsedMins} activeStart={onLunch ? lunchStartTime : onTea ? teaStartTime : null} />
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-0.5 text-[10px]">
+                    <span className="text-orange-600 font-bold">🍽️ Lunch: {lunchUsedMins}m / {lunchAllowed}m</span>
+                    <span className="text-teal-600 font-bold">🍵 Tea: {teaUsedMins}m / {teaAllowed}m</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Right: Break buttons */}
+              {/* Break action buttons */}
               {isCheckedIn && (
                 <div className="flex items-center gap-2">
                   {(() => {
@@ -500,18 +508,18 @@ const Dashboard = () => {
                     return (
                       <>
                         <button onClick={() => handleBreak('LUNCH')} disabled={onTea}
-                          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-bold text-xs transition-all
-                            ${onTea ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400' :
-                              onLunch ? (lunchCD.exceeded ? 'bg-red-500 text-white animate-pulse' : 'bg-orange-500 text-white')
-                              : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'}`}>
-                          🍽️ {onLunch ? <><span className="font-mono">{fmtCountdown(lunchCD.remaining)}</span></> : <>Lunch</>}
+                          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all border-2
+                            ${onTea ? 'opacity-30 cursor-not-allowed bg-slate-50 text-slate-400 border-slate-200' :
+                              onLunch ? (lunchCD.exceeded ? 'bg-red-500 text-white border-red-500 shadow-red-200 animate-pulse' : 'bg-orange-500 text-white border-orange-500 shadow-orange-200')
+                              : 'bg-white text-orange-600 border-orange-300 hover:bg-orange-50 hover:border-orange-400 hover:shadow-lg'}`}>
+                          🍽️ {onLunch ? <span className="font-mono">{fmtCountdown(lunchCD.remaining)}</span> : 'Lunch Break'}
                         </button>
                         <button onClick={() => handleBreak('TEA')} disabled={onLunch}
-                          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-bold text-xs transition-all
-                            ${onLunch ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400' :
-                              onTea ? (teaCD.exceeded ? 'bg-red-500 text-white animate-pulse' : 'bg-teal-500 text-white')
-                              : 'bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100'}`}>
-                          🍵 {onTea ? <><span className="font-mono">{fmtCountdown(teaCD.remaining)}</span></> : <>Tea</>}
+                          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all border-2
+                            ${onLunch ? 'opacity-30 cursor-not-allowed bg-slate-50 text-slate-400 border-slate-200' :
+                              onTea ? (teaCD.exceeded ? 'bg-red-500 text-white border-red-500 shadow-red-200 animate-pulse' : 'bg-teal-500 text-white border-teal-500 shadow-teal-200')
+                              : 'bg-white text-teal-600 border-teal-300 hover:bg-teal-50 hover:border-teal-400 hover:shadow-lg'}`}>
+                          🍵 {onTea ? <span className="font-mono">{fmtCountdown(teaCD.remaining)}</span> : 'Tea Break'}
                         </button>
                       </>
                     );
