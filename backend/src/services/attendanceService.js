@@ -810,9 +810,11 @@ const getDailyAttendance = async (companyId, dateStr) => {
       else if (arrStatus === 'overlate') displayStatus = 'OVER LATE';
       else if (arrStatus === 'halfday') displayStatus = 'HALF DAY';
 
-      // Missed checkout: if no checkout and expected out time has already passed → auto HALF DAY/ABSENT
+      // Missed checkout override: check flags or if no checkout and past expected out
       const shiftMins = shiftHrs * 60;
-      if (!checkOut && new Date() > expectedOutISO) {
+      const existingFlags = existing.flags ? (typeof existing.flags === 'string' ? JSON.parse(existing.flags) : existing.flags) : [];
+      const missedCheckout = existingFlags.includes('MISSED_CHECKOUT') || (!checkOut && new Date() > expectedOutISO);
+      if (missedCheckout) {
         const workedMins = daily_attendance.net_work_minutes || 0;
         if (workedMins >= shiftMins / 2) {
           displayStatus = 'HALF DAY';
@@ -841,6 +843,7 @@ const getDailyAttendance = async (companyId, dateStr) => {
         name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown',
         role: emp.role,
         workHours: netMins > 0 ? fmtTime(netMins) : (isCheckedIn ? 'In Progress' : '0h 00m'),
+        missedCheckout,
         expectedCheckout: expectedOutISO ? expectedOutISO.toISOString() : '-',
         lateMinutes,
         displayStatus,
