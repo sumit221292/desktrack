@@ -370,6 +370,11 @@ const Attendance = () => {
                   </td>
                   {!isEmployee && (
                   <td className="px-5 py-3">
+                    {record.missedCheckout ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-red-600 bg-red-50 px-2 py-1 rounded-full border border-red-200">
+                        Checkout missed - auto closed
+                      </span>
+                    ) : (
                     <div className="flex items-center gap-2">
                       <Button variant="ghost" onClick={() => openEdit(record)} className="text-primary-600 font-bold text-xs px-2 py-1 h-auto hover:bg-primary-50 shrink-0">Edit</Button>
                       <button onClick={() => openRemarks(record)} className="group relative text-left shrink-0" title={record.remarks || 'Add remarks'}>
@@ -382,6 +387,7 @@ const Attendance = () => {
                         )}
                       </button>
                     </div>
+                    )}
                   </td>
                   )}
                 </tr>
