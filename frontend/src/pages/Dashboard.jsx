@@ -174,6 +174,7 @@ const Dashboard = () => {
   const [lunchUsedMins, setLunchUsedMins] = useState(0);
   const [teaUsedMins, setTeaUsedMins] = useState(0);
   const [breakTick, setBreakTick] = useState(0);
+  const [activityDetail, setActivityDetail] = useState(null);
 
   const lunchAllowed = breakConfig?.lunch_allowed_minutes || 45;
   const teaAllowed = breakConfig?.tea_allowed_minutes || 15;
@@ -258,27 +259,25 @@ const Dashboard = () => {
         const attendanceRes = await api.get(`/attendance?date=${selectedDate}`);
         const attendanceData = attendanceRes.data;
         
-        // Recent Activity: show arrival-based status
+        // Recent Activity: ALWAYS show only self (own attendance), not other employees
         const active = Array.isArray(attendanceData) ? attendanceData
-          .filter(a => a.check_in && a.check_in !== '-' && !String(a.id).startsWith('no-ref-'))
+          .filter(a => a.check_in && a.check_in !== '-' && !String(a.id).startsWith('no-ref-')
+            && a.email && user?.email && a.email.toLowerCase() === user.email.toLowerCase())
           .map(a => {
             const statusStr = a.displayStatus || a.arrival_status || a.status || 'Present';
             const cfg = getStatusConfig(statusStr);
             return {
+              id: a.id,
               name: a.name,
+              email: a.email,
               time: new Date(a.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }),
               status: statusStr,
               role: a.role || 'Employee',
-              cfg
+              cfg,
+              raw: a // keep full record for detail modal
             };
           }) : [];
-
-        // EMPLOYEE sees only their own activity; admin sees all
-        if (isEmployee) {
-          setRecentActivity(active.filter(a => a.name && user.email).slice(0, 10));
-        } else {
-          setRecentActivity(active.slice(0, 10));
-        }
+        setRecentActivity(active.slice(0, 10));
 
         // Current user's attendance for the status bar
         if (user && Array.isArray(attendanceData)) {
@@ -611,14 +610,20 @@ const Dashboard = () => {
           </div>
           
           <div className="space-y-4 flex-1 overflow-y-auto custom-scrollbar pr-2">
-            {recentActivity.map((usr, i) => (
-              <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer group border border-transparent hover:border-slate-200">
+            {recentActivity.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-sm">No activity yet today.</div>
+            ) : recentActivity.map((usr, i) => (
+              <div
+                key={i}
+                onClick={() => setActivityDetail(usr.raw)}
+                className="flex items-center justify-between p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer group border border-transparent hover:border-primary-200"
+              >
                 <div className="flex items-center space-x-3">
                   <div className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-primary-700 font-bold shadow-sm">
                     {usr.name.split(' ').map(n=>n[0]).join('')}
                   </div>
                   <div>
-                    <p className="font-bold text-slate-800 text-sm group-hover:text-primary-700 transition-colors">{usr.name}</p>
+                    <p className="font-bold text-slate-800 text-sm group-hover:text-primary-700 transition-colors underline-offset-2 group-hover:underline">{usr.name}</p>
                     <p className="text-xs text-slate-500 font-medium">{usr.role} &bull; Check-in: {usr.time}</p>
                   </div>
                 </div>
@@ -630,6 +635,112 @@ const Dashboard = () => {
           </div>
         </Card>
       </section>
+
+      {/* Activity Detail Modal: Check-in/out history + Break history */}
+      <Modal isOpen={!!activityDetail} onClose={() => setActivityDetail(null)} title={activityDetail ? `${activityDetail.name} — Today's Activity` : 'Activity Detail'} maxWidth="max-w-2xl">
+        {activityDetail && (() => {
+          const fmtT = (iso) => iso ? new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : '—';
+          const fmtD = (mins) => {
+            if (!mins) return '0m';
+            const h = Math.floor(mins/60); const m = mins%60;
+            return h > 0 ? `${h}h ${m}m` : `${m}m`;
+          };
+          return (
+            <div className="space-y-5">
+              {/* Summary Card */}
+              <div className="grid grid-cols-4 gap-3">
+                <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-100">
+                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Check In</p>
+                  <p className="text-lg font-bold text-emerald-700 font-mono">{fmtT(activityDetail.check_in)}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-red-50 border border-red-100">
+                  <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Check Out</p>
+                  <p className="text-lg font-bold text-red-700 font-mono">
+                    {activityDetail.is_checked_in ? 'Active' : fmtT(activityDetail.check_out || activityDetail.last_check_out)}
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg bg-blue-50 border border-blue-100">
+                  <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Work</p>
+                  <p className="text-lg font-bold text-blue-700 font-mono">{fmtD(activityDetail.net_work_minutes)}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-100">
+                  <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Break</p>
+                  <p className="text-lg font-bold text-amber-700 font-mono">{fmtD(activityDetail.total_break_minutes)}</p>
+                </div>
+              </div>
+
+              {/* Break History */}
+              <div>
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Break History</h4>
+                <div className="space-y-2">
+                  {/* Lunch */}
+                  <div className="flex items-center justify-between p-3 bg-orange-50 border border-orange-100 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🍽️</span>
+                      <div>
+                        <p className="text-xs font-bold text-orange-700">Lunch Break</p>
+                        <p className="text-[11px] text-orange-600 font-mono">
+                          {activityDetail.lunch_status === 'NOT_TAKEN' ? 'Not taken' :
+                           activityDetail.lunch_start ? `${fmtT(activityDetail.lunch_start)} → ${activityDetail.lunch_end ? fmtT(activityDetail.lunch_end) : 'ongoing'}` : '—'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-orange-700 font-mono">{fmtD(activityDetail.lunch_actual_minutes)}</p>
+                      <p className="text-[10px] text-orange-500">{activityDetail.lunch_status || 'N/A'}</p>
+                    </div>
+                  </div>
+                  {/* Tea */}
+                  <div className="flex items-center justify-between p-3 bg-teal-50 border border-teal-100 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🍵</span>
+                      <div>
+                        <p className="text-xs font-bold text-teal-700">Tea Break</p>
+                        <p className="text-[11px] text-teal-600 font-mono">
+                          {activityDetail.tea_status === 'NOT_TAKEN' ? 'Not taken' :
+                           activityDetail.tea_start ? `${fmtT(activityDetail.tea_start)} → ${activityDetail.tea_end ? fmtT(activityDetail.tea_end) : 'ongoing'}` : '—'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-teal-700 font-mono">{fmtD(activityDetail.tea_actual_minutes)}</p>
+                      <p className="text-[10px] text-teal-500">{activityDetail.tea_status || 'N/A'}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status & Flags */}
+              <div>
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Status</h4>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {(() => {
+                    const cfg = getStatusConfig(activityDetail.displayStatus || activityDetail.status);
+                    return (
+                      <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${cfg.tw}`}>
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cfg.color }} />{cfg.label}
+                      </span>
+                    );
+                  })()}
+                  {activityDetail.missedCheckout && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold text-red-700 bg-red-50 border border-red-200">
+                      ⚠ Checkout Missed
+                    </span>
+                  )}
+                  {activityDetail.breakExceeded && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200">
+                      Break Exceeded (+{activityDetail.excessBreakMins}m)
+                    </span>
+                  )}
+                </div>
+                {activityDetail.ai_summary && (
+                  <p className="text-xs text-slate-500 mt-3 italic">{activityDetail.ai_summary}</p>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
 
       <Modal isOpen={!!selectedKPI} onClose={() => setSelectedKPI(null)} title={`${selectedKPI} Details`} maxWidth="max-w-3xl">
         {selectedKPI && dummyDetails[selectedKPI] && (
