@@ -175,6 +175,15 @@ const Dashboard = () => {
   const [teaUsedMins, setTeaUsedMins] = useState(0);
   const [breakTick, setBreakTick] = useState(0);
   const [activityDetail, setActivityDetail] = useState(null);
+  const [activityHistory, setActivityHistory] = useState({ sessions: [], breaks: { LUNCH: [], TEA: [] } });
+
+  // Fetch full activity history when modal opens
+  useEffect(() => {
+    if (!activityDetail?.id) { setActivityHistory({ sessions: [], breaks: { LUNCH: [], TEA: [] } }); return; }
+    api.get(`/attendance/${activityDetail.id}/activity`)
+      .then(res => setActivityHistory(res.data || { sessions: [], breaks: { LUNCH: [], TEA: [] } }))
+      .catch(() => setActivityHistory({ sessions: [], breaks: { LUNCH: [], TEA: [] } }));
+  }, [activityDetail?.id]);
 
   const lunchAllowed = breakConfig?.lunch_allowed_minutes || 45;
   const teaAllowed = breakConfig?.tea_allowed_minutes || 15;
@@ -671,45 +680,84 @@ const Dashboard = () => {
                 </div>
               </div>
 
-              {/* Break History */}
+              {/* Check-In/Out Sessions History */}
               <div>
-                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Break History</h4>
-                <div className="space-y-2">
-                  {/* Lunch */}
-                  <div className="flex items-center justify-between p-3 bg-orange-50 border border-orange-100 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">🍽️</span>
-                      <div>
-                        <p className="text-xs font-bold text-orange-700">Lunch Break</p>
-                        <p className="text-[11px] text-orange-600 font-mono">
-                          {activityDetail.lunch_status === 'NOT_TAKEN' ? 'Not taken' :
-                           activityDetail.lunch_start ? `${fmtT(activityDetail.lunch_start)} → ${activityDetail.lunch_end ? fmtT(activityDetail.lunch_end) : 'ongoing'}` : '—'}
-                        </p>
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                  Check-In / Check-Out Sessions ({activityHistory.sessions.length})
+                </h4>
+                {activityHistory.sessions.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic">No session data</p>
+                ) : (
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
+                    {activityHistory.sessions.map((s, i) => (
+                      <div key={s.id || i} className="flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-100 rounded-lg text-xs">
+                        <div className="flex items-center gap-3">
+                          <span className="font-bold text-slate-500 w-6">#{i + 1}</span>
+                          <span className="font-mono text-emerald-700">{fmtT(s.check_in)}</span>
+                          <span className="text-slate-300">→</span>
+                          <span className="font-mono text-red-600">{s.check_out ? fmtT(s.check_out) : 'Active'}</span>
+                        </div>
+                        <span className="font-bold text-slate-700 font-mono">
+                          {s.duration_minutes ? fmtD(parseInt(s.duration_minutes)) : '—'}
+                        </span>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-orange-700 font-mono">{fmtD(activityDetail.lunch_actual_minutes)}</p>
-                      <p className="text-[10px] text-orange-500">{activityDetail.lunch_status || 'N/A'}</p>
-                    </div>
+                    ))}
                   </div>
-                  {/* Tea */}
-                  <div className="flex items-center justify-between p-3 bg-teal-50 border border-teal-100 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">🍵</span>
-                      <div>
-                        <p className="text-xs font-bold text-teal-700">Tea Break</p>
-                        <p className="text-[11px] text-teal-600 font-mono">
-                          {activityDetail.tea_status === 'NOT_TAKEN' ? 'Not taken' :
-                           activityDetail.tea_start ? `${fmtT(activityDetail.tea_start)} → ${activityDetail.tea_end ? fmtT(activityDetail.tea_end) : 'ongoing'}` : '—'}
-                        </p>
+                )}
+              </div>
+
+              {/* Lunch Break History — multiple pairs */}
+              <div>
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <span>🍽️ Lunch Breaks ({activityHistory.breaks.LUNCH.length})</span>
+                  <span className="text-orange-600 font-mono">Total: {fmtD(activityDetail.lunch_actual_minutes)}</span>
+                </h4>
+                {activityHistory.breaks.LUNCH.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic">Not taken</p>
+                ) : (
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto custom-scrollbar">
+                    {activityHistory.breaks.LUNCH.map((b, i) => (
+                      <div key={i} className="flex items-center justify-between px-3 py-2 bg-orange-50 border border-orange-100 rounded-lg text-xs">
+                        <div className="flex items-center gap-3">
+                          <span className="font-bold text-orange-500 w-6">#{i + 1}</span>
+                          <span className="font-mono text-orange-700">{fmtT(b.start)}</span>
+                          <span className="text-orange-300">→</span>
+                          <span className="font-mono text-orange-700">{b.end ? fmtT(b.end) : 'Ongoing'}</span>
+                        </div>
+                        <span className={`font-bold font-mono ${b.status === 'ACTIVE' ? 'text-amber-600 animate-pulse' : 'text-orange-700'}`}>
+                          {b.duration_minutes ? fmtD(b.duration_minutes) : '—'}
+                        </span>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-teal-700 font-mono">{fmtD(activityDetail.tea_actual_minutes)}</p>
-                      <p className="text-[10px] text-teal-500">{activityDetail.tea_status || 'N/A'}</p>
-                    </div>
+                    ))}
                   </div>
-                </div>
+                )}
+              </div>
+
+              {/* Tea Break History — multiple pairs */}
+              <div>
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <span>🍵 Tea Breaks ({activityHistory.breaks.TEA.length})</span>
+                  <span className="text-teal-600 font-mono">Total: {fmtD(activityDetail.tea_actual_minutes)}</span>
+                </h4>
+                {activityHistory.breaks.TEA.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic">Not taken</p>
+                ) : (
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto custom-scrollbar">
+                    {activityHistory.breaks.TEA.map((b, i) => (
+                      <div key={i} className="flex items-center justify-between px-3 py-2 bg-teal-50 border border-teal-100 rounded-lg text-xs">
+                        <div className="flex items-center gap-3">
+                          <span className="font-bold text-teal-500 w-6">#{i + 1}</span>
+                          <span className="font-mono text-teal-700">{fmtT(b.start)}</span>
+                          <span className="text-teal-300">→</span>
+                          <span className="font-mono text-teal-700">{b.end ? fmtT(b.end) : 'Ongoing'}</span>
+                        </div>
+                        <span className={`font-bold font-mono ${b.status === 'ACTIVE' ? 'text-amber-600 animate-pulse' : 'text-teal-700'}`}>
+                          {b.duration_minutes ? fmtD(b.duration_minutes) : '—'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Status & Flags */}
