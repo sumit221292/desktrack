@@ -786,13 +786,14 @@ const getDailyAttendance = async (companyId, dateStr) => {
       const empEvents = events.rows.filter(e => e.employee_id == emp.id);
       const { daily_attendance } = calculateAttendance({ ...shift, employee_id: emp.id, timezone: companyTz, lunch_allowed_minutes: brkCfg.lunch_allowed_minutes || 45, tea_allowed_minutes: brkCfg.tea_allowed_minutes || 15 }, checkIn, checkOut, empEvents, empSessions);
 
-      // Expected checkout = check-in + shift hours + excess break only
-      // Break is included within shift hours. Only excess (above max_break) extends the day.
-      // e.g. check-in 06:00 PM + 9h = 03:00 AM. If 2min excess break → 03:02 AM
+      // Expected checkout = check-in + shift hours + excess breaks
+      // Excess = (lunch over limit) + (tea over limit) + all other breaks (unplanned gaps)
+      // Other breaks = check-out + check-in gaps during the day — always extend expected out
       const shiftHrs = parseFloat(shift?.total_working_hours || 9);
-      const maxBreakMins = brkCfg.max_break_minutes || 70;
-      const breakMins = daily_attendance.total_break_minutes || 0;
-      const excessBreakMins = Math.max(0, breakMins - maxBreakMins);
+      const lunchExcess = Math.max(0, (daily_attendance.lunch_actual_minutes || 0) - (brkCfg.lunch_allowed_minutes || 45));
+      const teaExcess = Math.max(0, (daily_attendance.tea_actual_minutes || 0) - (brkCfg.tea_allowed_minutes || 15));
+      const otherBreakMins = daily_attendance.other_break_minutes || 0;
+      const excessBreakMins = lunchExcess + teaExcess + otherBreakMins;
       const expectedOutISO = new Date(checkIn.getTime() + ((shiftHrs * 60) + excessBreakMins) * 60 * 1000);
 
       // Late minutes: diff between check_in and shift_start_time (IST)
