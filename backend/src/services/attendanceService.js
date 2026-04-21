@@ -308,9 +308,12 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
     grossMinutes = Math.ceil((lastCheckOut - firstCheckIn) / 60000);
   }
   // Fallback: compute from sessions if gross is 0 but sessions exist
+  // IMPORTANT: duration_minutes = 0 means orphan session (no checkout by user) — skip it
   if (grossMinutes <= 0 && sessions.length > 0) {
     grossMinutes = sessions.reduce((sum, s) => {
-      if (s.duration_minutes) return sum + Math.max(1, parseInt(s.duration_minutes) || 0);
+      const dur = parseInt(s.duration_minutes) || 0;
+      if (dur > 0) return sum + dur; // Only count sessions with real duration
+      if (s.check_in && s.check_out && dur === 0) return sum; // Orphan session — no credit
       if (s.check_in && s.check_out) {
         return sum + Math.max(1, Math.ceil((new Date(s.check_out) - new Date(s.check_in)) / 60000));
       }

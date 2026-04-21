@@ -339,6 +339,8 @@ const Attendance = () => {
                     </div>
                     {record.is_checked_in ? (
                       <div className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded text-[11px] font-bold mt-1 inline-block animate-pulse">● Working</div>
+                    ) : record.missedCheckout ? (
+                      <div className="text-red-600 bg-red-50 px-1.5 py-0.5 rounded text-[11px] font-bold mt-1 inline-block">⚠ Checkout Missed</div>
                     ) : record.shortfallMinutes > 0 ? (
                       <div className="text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded text-[11px] font-bold mt-1 inline-block">-{minsToHMS(record.shortfallMinutes)} Shortfall</div>
                     ) : record.checkIn !== '-' ? (
