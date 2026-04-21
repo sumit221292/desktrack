@@ -259,24 +259,26 @@ const Dashboard = () => {
         const attendanceRes = await api.get(`/attendance?date=${selectedDate}`);
         const attendanceData = attendanceRes.data;
         
-        // Recent Activity: ALWAYS show only self (own attendance), not other employees
-        const active = Array.isArray(attendanceData) ? attendanceData
-          .filter(a => a.check_in && a.check_in !== '-' && !String(a.id).startsWith('no-ref-')
-            && a.email && user?.email && a.email.toLowerCase() === user.email.toLowerCase())
-          .map(a => {
-            const statusStr = a.displayStatus || a.arrival_status || a.status || 'Present';
-            const cfg = getStatusConfig(statusStr);
-            return {
-              id: a.id,
-              name: a.name,
-              email: a.email,
-              time: new Date(a.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }),
-              status: statusStr,
-              role: a.role || 'Employee',
-              cfg,
-              raw: a // keep full record for detail modal
-            };
-          }) : [];
+        // Recent Activity: EMPLOYEE sees only own; Admin/HR/Manager see everyone
+        const baseFiltered = Array.isArray(attendanceData) ? attendanceData
+          .filter(a => a.check_in && a.check_in !== '-' && !String(a.id).startsWith('no-ref-')) : [];
+        const filtered = isEmployee
+          ? baseFiltered.filter(a => a.email && user?.email && a.email.toLowerCase() === user.email.toLowerCase())
+          : baseFiltered;
+        const active = filtered.map(a => {
+          const statusStr = a.displayStatus || a.arrival_status || a.status || 'Present';
+          const cfg = getStatusConfig(statusStr);
+          return {
+            id: a.id,
+            name: a.name,
+            email: a.email,
+            time: new Date(a.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }),
+            status: statusStr,
+            role: a.role || 'Employee',
+            cfg,
+            raw: a // keep full record for detail modal
+          };
+        });
         setRecentActivity(active.slice(0, 10));
 
         // Current user's attendance for the status bar
