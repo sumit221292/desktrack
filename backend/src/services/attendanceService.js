@@ -788,8 +788,8 @@ const getDailyAttendance = async (companyId, dateStr) => {
 
       // Expected checkout = check-in + shift hours + excess breaks
       // Excess = (lunch over limit) + (tea over limit) + all other breaks (unplanned gaps)
-      // Other breaks = check-out + check-in gaps during the day — always extend expected out
       const shiftHrs = parseFloat(shift?.total_working_hours || 9);
+      const breakMins = daily_attendance.total_break_minutes || 0;
       const lunchExcess = Math.max(0, (daily_attendance.lunch_actual_minutes || 0) - (brkCfg.lunch_allowed_minutes || 45));
       const teaExcess = Math.max(0, (daily_attendance.tea_actual_minutes || 0) - (brkCfg.tea_allowed_minutes || 15));
       const otherBreakMins = daily_attendance.other_break_minutes || 0;
