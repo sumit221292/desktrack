@@ -820,11 +820,14 @@ const getDailyAttendance = async (companyId, dateStr) => {
       const missedCheckout = existingFlags.includes('MISSED_CHECKOUT') || (!checkOut && new Date() > expectedOutISO);
       if (missedCheckout) {
         const workedMins = daily_attendance.net_work_minutes || 0;
-        if (workedMins >= shiftMins / 2) {
-          displayStatus = 'HALF DAY';
-        } else {
-          displayStatus = 'ABSENT';
-        }
+        if (workedMins >= shiftMins / 2) displayStatus = 'HALF DAY';
+        else displayStatus = 'ABSENT';
+      } else if (checkOut && !isCheckedIn) {
+        // Checked out — enforce completion-based status
+        const workedMins = daily_attendance.net_work_minutes || 0;
+        if (workedMins < shiftMins / 2) displayStatus = 'ABSENT';
+        else if (workedMins < shiftMins) displayStatus = 'HALF DAY';
+        // else keep arrival-based status (ON TIME / LATE / OVER LATE)
       }
 
       // Shortfall
