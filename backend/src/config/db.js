@@ -683,6 +683,15 @@ const db = {
             total_deductions: params[16],
             net_salary: params[17],
             status: params[18] || 'PROCESSED',
+            // New attendance-based fields (may be undefined for old payloads)
+            total_working_days: params[19] || 0,
+            present_days: params[20] || 0,
+            half_days: params[21] || 0,
+            absent_days: params[22] || 0,
+            paid_leave_days: params[23] || 0,
+            unpaid_leave_days: params[24] || 0,
+            payable_days: params[25] || 0,
+            lop_amount: params[26] || 0,
             created_at: new Date()
           };
           if (!memoryDB.payroll_records) memoryDB.payroll_records = [];
@@ -1551,6 +1560,14 @@ async function runMigrations() {
       // payroll_records — add deductions_json for payroll custom data
       try {
         await pool.query('ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS deductions_json JSONB');
+        await pool.query('ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS total_working_days DECIMAL(5,2) DEFAULT 0');
+        await pool.query('ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS present_days DECIMAL(5,2) DEFAULT 0');
+        await pool.query('ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS half_days DECIMAL(5,2) DEFAULT 0');
+        await pool.query('ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS absent_days DECIMAL(5,2) DEFAULT 0');
+        await pool.query('ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS paid_leave_days DECIMAL(5,2) DEFAULT 0');
+        await pool.query('ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS unpaid_leave_days DECIMAL(5,2) DEFAULT 0');
+        await pool.query('ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS payable_days DECIMAL(5,2) DEFAULT 0');
+        await pool.query('ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS lop_amount DECIMAL(12,2) DEFAULT 0');
       } catch (e) { /* already exists */ }
 
       // shifts — add lunch/tea allowed minutes and max break

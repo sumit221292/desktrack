@@ -80,6 +80,24 @@ const SalarySlip = ({ data, company, formatCurrency, currencyConfig }) => {
         </div>
       </div>
 
+      {/* Attendance Summary */}
+      {(data.total_working_days > 0 || data.payable_days > 0) && (
+        <div className="mb-5">
+          <div className="bg-blue-600 text-white text-xs font-bold px-4 py-2 rounded-t-lg">ATTENDANCE SUMMARY</div>
+          <div className="border border-t-0 border-slate-200 rounded-b-lg p-3 bg-slate-50">
+            <div className="grid grid-cols-7 gap-2 text-[11px]">
+              <div className="text-center"><p className="text-slate-400">Working</p><p className="font-bold text-slate-800">{data.total_working_days || 0}</p></div>
+              <div className="text-center"><p className="text-slate-400">Present</p><p className="font-bold text-emerald-700">{data.present_days || 0}</p></div>
+              <div className="text-center"><p className="text-slate-400">Half Day</p><p className="font-bold text-amber-700">{data.half_days || 0}</p></div>
+              <div className="text-center"><p className="text-slate-400">Absent</p><p className="font-bold text-red-700">{data.absent_days || 0}</p></div>
+              <div className="text-center"><p className="text-slate-400">Paid Leave</p><p className="font-bold text-blue-700">{data.paid_leave_days || 0}</p></div>
+              <div className="text-center"><p className="text-slate-400">Unpaid</p><p className="font-bold text-rose-700">{data.unpaid_leave_days || 0}</p></div>
+              <div className="text-center"><p className="text-slate-400">Payable</p><p className="font-bold text-primary-700">{data.payable_days || 0}</p></div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Earnings & Deductions */}
       <div className="grid grid-cols-2 gap-4 mb-5">
         <div>
@@ -1330,11 +1348,16 @@ const Payroll = () => {
             </div>
           </div>
           <div className="bg-slate-50 rounded-xl p-4 space-y-1.5 text-xs text-slate-600">
-            <p className="font-bold text-slate-700 mb-2">Calculation Rules</p>
-            <p>• PF Employee Contribution: 12% of Basic Pay</p>
-            <p>• ESI: 0.75% of Gross (only if Gross &lt; ₹21,000)</p>
-            <p>• Professional Tax: ₹200/month</p>
-            <p>• Net = Gross Salary − Total Deductions</p>
+            <p className="font-bold text-slate-700 mb-2">Attendance-Based Calculation</p>
+            <p>• <strong>Payable Days</strong> = Present + (0.5 × Half Day) + Paid Leaves</p>
+            <p>• <strong>Per Day Salary</strong> = Full Gross ÷ Total Working Days (excl. weekends)</p>
+            <p>• <strong>Earned Gross</strong> = Per Day × Payable Days (prorated)</p>
+            <p>• <strong>LOP Deduction</strong> = Per Day × (Absent + Unpaid Leave days)</p>
+            <p className="pt-2 font-bold text-slate-700">Statutory</p>
+            <p>• PF: 12% of prorated Basic Pay</p>
+            <p>• ESI: 0.75% of earned Gross (if &lt; ₹21,000)</p>
+            <p>• Professional Tax: ₹200/month (if working)</p>
+            <p>• Net = Earned Gross − Total Deductions</p>
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="ghost" onClick={() => setShowRunModal(false)}>Cancel</Button>

@@ -163,7 +163,104 @@ const getPayrollHistory = async (req, res) => {
   }
 };
 
-// Run payroll — skips employees already processed for the month
+/**
+ * Calculate attendance-based payable days for an employee in a month
+ * Returns: { totalWorkingDays, presentDays, halfDays, absentDays, paidLeaveDays, unpaidLeaveDays, payableDays }
+ */
+const calculateAttendanceDays = async (companyId, employeeId, month, year) => {
+  const m = parseInt(month), y = parseInt(year);
+  const daysInMonth = new Date(y, m, 0).getDate();
+
+  // Total working days = calendar days - weekends
+  let totalWorkingDays = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(y, m - 1, d).getDay();
+    if (dow !== 0 && dow !== 6) totalWorkingDays++;
+  }
+
+  // Fetch attendance records for this employee in this month
+  const startDate = `${y}-${String(m).padStart(2, '0')}-01`;
+  const endDate = `${y}-${String(m).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
+
+  const attResult = await query(
+    `SELECT * FROM attendance WHERE employee_id = $1 AND company_id = $2
+     AND check_in::date >= $3::date AND check_in::date <= $4::date`,
+    [employeeId, companyId, startDate, endDate]
+  );
+
+  let presentDays = 0, halfDays = 0, absentDays = 0;
+  const attendedDateSet = new Set();
+
+  for (const rec of attResult.rows) {
+    const dateStr = new Date(rec.check_in).toISOString().split('T')[0];
+    attendedDateSet.add(dateStr);
+
+    const status = (rec.status || '').toUpperCase();
+    const flags = rec.flags ? (typeof rec.flags === 'string' ? JSON.parse(rec.flags) : rec.flags) : [];
+    const hasHalfday = flags.includes('HALFDAY') || flags.includes('HALF_DAY');
+    const hasAbsent = flags.includes('ABSENT');
+
+    if (hasAbsent) absentDays += 1;
+    else if (hasHalfday || status === 'INCOMPLETE') halfDays += 1;
+    else if (status === 'COMPLETE' || rec.net_work_minutes > 0) presentDays += 1;
+    else absentDays += 1;
+  }
+
+  // Count working days without attendance as absent
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(y, m - 1, d).getDay();
+    if (dow === 0 || dow === 6) continue;
+    const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (!attendedDateSet.has(dateStr)) {
+      // Check if it's a future date
+      if (new Date(dateStr) <= new Date()) absentDays += 1;
+    }
+  }
+
+  // Fetch approved leaves in this month
+  const leaveResult = await query(
+    `SELECT lr.*, lt.annual_quota, lt.code FROM leave_requests lr
+     LEFT JOIN leave_types lt ON lr.leave_type_id = lt.id
+     WHERE lr.employee_id = $1 AND lr.company_id = $2 AND lr.status = 'APPROVED'
+     AND lr.start_date <= $4::date AND lr.end_date >= $3::date`,
+    [employeeId, companyId, startDate, endDate]
+  ).catch(() => ({ rows: [] }));
+
+  let paidLeaveDays = 0, unpaidLeaveDays = 0;
+  for (const leave of leaveResult.rows) {
+    const ls = new Date(Math.max(new Date(leave.start_date), new Date(startDate)));
+    const le = new Date(Math.min(new Date(leave.end_date), new Date(endDate)));
+    let daysInRange = 0;
+    for (let d = new Date(ls); d <= le; d.setDate(d.getDate() + 1)) {
+      if (d.getDay() !== 0 && d.getDay() !== 6) daysInRange++;
+    }
+    // If leave type has annual_quota > 0 = paid leave, else unpaid (LOP)
+    if ((parseInt(leave.annual_quota) || 0) > 0) paidLeaveDays += daysInRange;
+    else unpaidLeaveDays += daysInRange;
+
+    // If marked absent on leave day, reverse that absent count (leave takes precedence)
+    for (let d = new Date(ls); d <= le; d.setDate(d.getDate() + 1)) {
+      if (d.getDay() === 0 || d.getDay() === 6) continue;
+      const dateStr = d.toISOString().split('T')[0];
+      if (!attendedDateSet.has(dateStr) && absentDays > 0) absentDays -= 1;
+    }
+  }
+
+  // Payable days = Present + 0.5*HalfDay + PaidLeave
+  const payableDays = presentDays + (halfDays * 0.5) + paidLeaveDays;
+
+  return {
+    totalWorkingDays,
+    presentDays,
+    halfDays,
+    absentDays,
+    paidLeaveDays,
+    unpaidLeaveDays,
+    payableDays: Math.min(payableDays, totalWorkingDays) // can't exceed total
+  };
+};
+
+// Run payroll — attendance-based salary calculation
 const runPayroll = async (req, res) => {
   const companyId = req.tenantId;
   const { month, year } = req.body;
@@ -188,7 +285,7 @@ const runPayroll = async (req, res) => {
       const ss = structureMap[emp.id];
       if (!ss) { noStructure.push(emp.first_name + ' ' + emp.last_name); continue; }
 
-      // Prevent duplicate — check if payroll already ran for this employee/month/year
+      // Prevent duplicate
       const existing = await query(
         'SELECT id FROM payroll_records WHERE employee_id = $1 AND company_id = $2 AND month = $3 AND year = $4',
         [emp.id, companyId, parseInt(month), parseInt(year)]
@@ -198,6 +295,7 @@ const runPayroll = async (req, res) => {
         continue;
       }
 
+      // Full salary structure
       const basic = parseFloat(ss.basic_pay) || 0;
       const hra = parseFloat(ss.hra) || 0;
       const da = parseFloat(ss.da) || 0;
@@ -205,22 +303,56 @@ const runPayroll = async (req, res) => {
       const medical = parseFloat(ss.medical) || 0;
       const special_allowance = parseFloat(ss.special_allowance) || 0;
       const bonus = 0;
-      const gross = basic + hra + da + conveyance + medical + special_allowance + bonus;
+      const fullGross = basic + hra + da + conveyance + medical + special_allowance + bonus;
 
-      const pf = Math.round(basic * 0.12 * 100) / 100;
-      const esi = gross < 21000 ? Math.round(gross * 0.0075 * 100) / 100 : 0;
-      const professional_tax = 200;
+      // Calculate attendance-based payable days
+      const att = await calculateAttendanceDays(companyId, emp.id, month, year);
+      const perDaySalary = att.totalWorkingDays > 0 ? (fullGross / att.totalWorkingDays) : 0;
+
+      // Earned gross = per-day × payable days (prorated)
+      const earnedGross = Math.round(perDaySalary * att.payableDays * 100) / 100;
+
+      // LOP (Loss of Pay) = per-day × (absent + unpaid leave)
+      const lopDays = att.absentDays + att.unpaidLeaveDays;
+      const lopAmount = Math.round(perDaySalary * lopDays * 100) / 100;
+
+      // Prorate individual components based on payable ratio
+      const ratio = att.totalWorkingDays > 0 ? (att.payableDays / att.totalWorkingDays) : 0;
+      const r = (v) => Math.round(v * ratio * 100) / 100;
+      const proratedBasic = r(basic);
+      const proratedHra = r(hra);
+      const proratedDa = r(da);
+      const proratedConv = r(conveyance);
+      const proratedMed = r(medical);
+      const proratedSA = r(special_allowance);
+
+      // Statutory deductions on prorated gross
+      const pf = Math.round(proratedBasic * 0.12 * 100) / 100;
+      const esi = earnedGross < 21000 ? Math.round(earnedGross * 0.0075 * 100) / 100 : 0;
+      const professional_tax = earnedGross > 0 ? 200 : 0;
       const tds = 0;
       const total_deductions = pf + esi + professional_tax + tds;
-      const net_salary = Math.round((gross - total_deductions) * 100) / 100;
+      const net_salary = Math.round((earnedGross - total_deductions) * 100) / 100;
 
       const result = await query(
-        `INSERT INTO payroll_records (employee_id, company_id, month, year, basic_pay, hra, da, conveyance, medical, special_allowance, bonus, gross_salary, pf, esi, professional_tax, tds, total_deductions, net_salary, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING *`,
-        [emp.id, companyId, parseInt(month), parseInt(year), basic, hra, da, conveyance, medical,
-         special_allowance, bonus, gross, pf, esi, professional_tax, tds, total_deductions, net_salary, 'PROCESSED']
+        `INSERT INTO payroll_records (
+          employee_id, company_id, month, year,
+          basic_pay, hra, da, conveyance, medical, special_allowance, bonus,
+          gross_salary, pf, esi, professional_tax, tds, total_deductions, net_salary, status,
+          total_working_days, present_days, half_days, absent_days,
+          paid_leave_days, unpaid_leave_days, payable_days, lop_amount
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+          $12, $13, $14, $15, $16, $17, $18, $19,
+          $20, $21, $22, $23, $24, $25, $26, $27
+        ) RETURNING *`,
+        [emp.id, companyId, parseInt(month), parseInt(year),
+         proratedBasic, proratedHra, proratedDa, proratedConv, proratedMed, proratedSA, bonus,
+         earnedGross, pf, esi, professional_tax, tds, total_deductions, net_salary, 'PROCESSED',
+         att.totalWorkingDays, att.presentDays, att.halfDays, att.absentDays,
+         att.paidLeaveDays, att.unpaidLeaveDays, att.payableDays, lopAmount]
       );
-      processed.push(result.rows[0]);
+      processed.push({ ...result.rows[0], employee_name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() });
     }
 
     const messages = [];
