@@ -899,12 +899,23 @@ const db = {
           const hasEmployeeFilter = q.includes('employee_id');
 
           if (isRange) {
-            // Range query: company_id=$1, startDate=$2, endDate=$3
-            const compId = params[0];
-            const startDay = String(params[1]).split('T')[0];
-            const endDay = String(params[2]).split('T')[0];
+            // Range query can be either:
+            // (a) company_id=$1, startDate=$2, endDate=$3  [monthly view]
+            // (b) employee_id=$1, company_id=$2, startDate=$3, endDate=$4  [payroll]
+            let empId = null, compId, startDay, endDay;
+            if (hasEmployeeFilter) {
+              empId = params[0];
+              compId = params[1];
+              startDay = String(params[2]).split('T')[0];
+              endDay = String(params[3]).split('T')[0];
+            } else {
+              compId = params[0];
+              startDay = String(params[1]).split('T')[0];
+              endDay = String(params[2]).split('T')[0];
+            }
             resultRows = memoryDB.attendance.filter(a => {
               if (a.company_id != compId) return false;
+              if (empId !== null && a.employee_id != empId) return false;
               const aDate = String(a.attendance_date || a.check_in).split('T')[0];
               return aDate >= startDay && aDate <= endDay;
             });
@@ -1054,6 +1065,12 @@ const db = {
         else if (q.includes('from payroll_records')) {
           if (!memoryDB.payroll_records) memoryDB.payroll_records = [];
           let prResult = [...memoryDB.payroll_records];
+          // Only filter by employee_id if it's actually bound to a parameter ($N), not a JOIN condition like pr.employee_id = e.id
+          const empIdMatch = q.match(/employee_id\s*=\s*\$(\d+)/);
+          if (empIdMatch) {
+            const empParam = params[parseInt(empIdMatch[1]) - 1];
+            prResult = prResult.filter(p => p.employee_id == empParam);
+          }
           if (q.includes('company_id =')) {
             const compIdMatch = q.match(/company_id\s*=\s*\$(\d+)/);
             const compParam = compIdMatch ? params[parseInt(compIdMatch[1]) - 1] : params[0];
