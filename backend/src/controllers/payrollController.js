@@ -263,7 +263,7 @@ const calculateAttendanceDays = async (companyId, employeeId, month, year) => {
 // Run payroll — attendance-based salary calculation
 const runPayroll = async (req, res) => {
   const companyId = req.tenantId;
-  const { month, year } = req.body;
+  const { month, year, force } = req.body;
 
   if (!month || !year) return res.status(400).json({ error: 'Month and year are required.' });
 
@@ -285,14 +285,22 @@ const runPayroll = async (req, res) => {
       const ss = structureMap[emp.id];
       if (!ss) { noStructure.push(emp.first_name + ' ' + emp.last_name); continue; }
 
-      // Prevent duplicate
+      // Check if existing record — skip or delete based on force flag
       const existing = await query(
         'SELECT id FROM payroll_records WHERE employee_id = $1 AND company_id = $2 AND month = $3 AND year = $4',
         [emp.id, companyId, parseInt(month), parseInt(year)]
       );
       if (existing.rows.length > 0) {
-        skipped.push(emp.first_name + ' ' + emp.last_name);
-        continue;
+        if (force) {
+          // Delete existing records for this employee/month/year to allow re-processing
+          await query(
+            'DELETE FROM payroll_records WHERE employee_id = $1 AND company_id = $2 AND month = $3 AND year = $4',
+            [emp.id, companyId, parseInt(month), parseInt(year)]
+          );
+        } else {
+          skipped.push(emp.first_name + ' ' + emp.last_name);
+          continue;
+        }
       }
 
       // Full salary structure

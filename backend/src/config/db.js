@@ -746,6 +746,22 @@ const db = {
           resultRows = [newF16];
           rowCount = 1;
         }
+        // [DELETE] Payroll Records
+        else if (q.includes('delete from payroll_records')) {
+          if (!memoryDB.payroll_records) memoryDB.payroll_records = [];
+          // DELETE FROM payroll_records WHERE employee_id = $1 AND company_id = $2 AND month = $3 AND year = $4
+          const empId = params[0];
+          const compId = params[1];
+          const month = params[2];
+          const year = params[3];
+          const before = memoryDB.payroll_records.length;
+          memoryDB.payroll_records = memoryDB.payroll_records.filter(p =>
+            !(p.employee_id == empId && p.company_id == compId && p.month == month && p.year == year)
+          );
+          saveToDisk();
+          rowCount = before - memoryDB.payroll_records.length;
+          resultRows = [];
+        }
         // [DELETE] Form16 Records
         else if (q.includes('delete from form16_records')) {
           const f16Id = params[0];

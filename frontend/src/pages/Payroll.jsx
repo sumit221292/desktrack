@@ -343,13 +343,21 @@ const Payroll = () => {
 
   // ── Run Payroll ──────────────────────────────────────────────────────────
   const handleRunPayroll = async () => {
+    // If records exist, confirm re-processing (will delete old and recreate)
+    const force = payrollRecords.length > 0;
+    if (force && !window.confirm(`Re-run payroll for ${currentMonthLabel}? This will delete existing records and re-calculate with current salary structures & attendance.`)) {
+      return;
+    }
     setSubmitting(true);
     try {
-      await api.post('/payroll/run', { month: selMonth, year: selYear });
+      const res = await api.post('/payroll/run', { month: selMonth, year: selYear, force });
+      console.log('[Payroll] Run result:', res.data);
       await fetchAll();
       setShowRunModal(false);
+      if (res.data?.message) alert(res.data.message);
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to run payroll');
+      console.error('[Payroll] Run error:', err);
+      alert(err.response?.data?.error || err.message || 'Failed to run payroll');
     } finally {
       setSubmitting(false);
     }
@@ -588,11 +596,10 @@ const Payroll = () => {
           {isAdmin && (
             <Button
               onClick={() => setShowRunModal(true)}
-              disabled={payrollRecords.length > 0}
               className="gap-2 shadow-lg bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20 h-[42px]"
             >
               <CurrencyIcon size={18} />
-              {payrollRecords.length > 0 ? 'Payroll Processed' : 'Run Payroll'}
+              {payrollRecords.length > 0 ? 'Re-run Payroll' : 'Run Payroll'}
             </Button>
           )}
         </div>
