@@ -212,9 +212,17 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
           endTime = eTime;
           windows.push({ start: sTime, end: eTime, type });
         } else {
-          // Last start has no end — break is still active
-          status = 'INCOMPLETE';
-          actualMins += Math.ceil((new Date() - sTime) / 60000);
+          // Last start has no end.
+          // If user has checked out — cap break at checkout time (break ended when user left)
+          // If user is still checked in — count up to now (live break)
+          const capEnd = lastCheckOut || new Date();
+          const dur = Math.ceil((capEnd - sTime) / 60000);
+          if (dur > 0) actualMins += dur;
+          if (!lastCheckOut) status = 'INCOMPLETE'; // only "active" if still checked in
+          else {
+            endTime = capEnd;
+            windows.push({ start: sTime, end: capEnd, type });
+          }
         }
       }
       if (status !== 'INCOMPLETE') {
@@ -559,6 +567,25 @@ const checkOut = async (attendanceId, companyId, manualCheckOutTime) => {
       [checkOutTime, durationMinutes, session.id]
     );
   }
+
+  // Auto-end any active breaks (LUNCH/TEA started but not ended)
+  const allEvents = eventsResult.rows;
+  for (const type of ['LUNCH', 'TEA']) {
+    const starts = allEvents.filter(e => e.event_type === `${type}_START`).sort((a, b) => new Date(a.event_time) - new Date(b.event_time));
+    const ends = allEvents.filter(e => e.event_type === `${type}_END`).sort((a, b) => new Date(a.event_time) - new Date(b.event_time));
+    if (starts.length > ends.length) {
+      // Active break — end it at checkout time
+      await query(
+        'INSERT INTO attendance_events (company_id, employee_id, attendance_id, event_type, event_time) VALUES ($1, $2, $3, $4, $5)',
+        [companyId, record.employee_id, attendanceId, `${type}_END`, checkOutTime]
+      );
+      console.log(`[Checkout] Auto-ended active ${type} break for employee ${record.employee_id}`);
+    }
+  }
+
+  // Re-fetch events after auto-ending breaks
+  const updatedEvents = await query('SELECT * FROM attendance_events WHERE attendance_id = $1 ORDER BY event_time ASC', [attendanceId]);
+  eventsResult.rows = updatedEvents.rows;
 
   // 3. Calculate total working hours and other metrics using core engine
   const sessions = sessionsResult.rows;
