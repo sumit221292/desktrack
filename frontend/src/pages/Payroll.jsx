@@ -388,13 +388,32 @@ const Payroll = () => {
 
   const handleSaveSalary = async (e) => {
     e.preventDefault();
+    if (!salaryForm.employeeId) {
+      alert('Employee ID missing. Please reopen the modal.');
+      return;
+    }
+    if (!salaryForm.basic_pay || parseFloat(salaryForm.basic_pay) <= 0) {
+      alert('Basic Pay is required and must be greater than 0.');
+      return;
+    }
     setSubmitting(true);
     try {
-      await api.post(`/payroll/salary-structures/${salaryForm.employeeId}`, salaryForm);
+      const payload = {
+        ...salaryForm,
+        basic_pay: parseFloat(salaryForm.basic_pay) || 0,
+        hra: parseFloat(salaryForm.hra) || 0,
+        da: parseFloat(salaryForm.da) || 0,
+        conveyance: parseFloat(salaryForm.conveyance) || 0,
+        medical: parseFloat(salaryForm.medical) || 0,
+        special_allowance: parseFloat(salaryForm.special_allowance) || 0,
+      };
+      const res = await api.post(`/payroll/salary-structures/${salaryForm.employeeId}`, payload);
+      console.log('[Payroll] Salary saved:', res.data);
       await fetchAll();
       setShowSalaryModal(false);
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save salary structure');
+      console.error('[Payroll] Save error:', err);
+      alert(err.response?.data?.error || err.message || 'Failed to save salary structure');
     } finally {
       setSubmitting(false);
     }
