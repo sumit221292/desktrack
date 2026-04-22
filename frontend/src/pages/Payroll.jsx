@@ -237,24 +237,37 @@ const Payroll = () => {
   const setTaxDecl = (empId, updater) =>
     setTaxDeclMap(prev => ({ ...prev, [empId]: typeof updater === 'function' ? updater(getTaxDecl(empId)) : updater }));
 
-  // Auto-save tax declaration to backend (debounced via useEffect caller)
-  const saveTaxDecl = async (empId, decl) => {
+  // Save tax declaration to backend
+  // silent=true for auto-save (no alert on failure), false for explicit submit
+  const saveTaxDecl = async (empId, decl, silent = true) => {
+    if (!empId) {
+      if (!silent) alert('Employee ID missing. Please reopen.');
+      return false;
+    }
     try {
-      await api.post(`/payroll/tax-declarations/${empId}`, {
+      const res = await api.post(`/payroll/tax-declarations/${empId}`, {
         financial_year: decl.fy,
         regime: decl.regime,
-        stdDeductionNew: decl.stdDeductionNew,
-        stdDeductionOld: decl.stdDeductionOld,
-        cessRate: decl.cessRate,
+        stdDeductionNew: parseFloat(decl.stdDeductionNew) || 0,
+        stdDeductionOld: parseFloat(decl.stdDeductionOld) || 0,
+        cessRate: parseFloat(decl.cessRate) || 4,
         slabs: decl.slabs,
-        sec80C: decl.sec80C, sec80D: decl.sec80D,
-        sec80G: decl.sec80G, sec80E: decl.sec80E,
-        hra_claimed: decl.hra_claimed, lta: decl.lta,
-        nps: decl.nps, other: decl.other,
-        submitted: decl.submitted,
+        sec80C: parseFloat(decl.sec80C) || 0,
+        sec80D: parseFloat(decl.sec80D) || 0,
+        sec80G: parseFloat(decl.sec80G) || 0,
+        sec80E: parseFloat(decl.sec80E) || 0,
+        hra_claimed: parseFloat(decl.hra_claimed) || 0,
+        lta: parseFloat(decl.lta) || 0,
+        nps: parseFloat(decl.nps) || 0,
+        other: parseFloat(decl.other) || 0,
+        submitted: !!decl.submitted,
       });
+      console.log('[Payroll] Tax declaration saved:', res.data);
+      return true;
     } catch (err) {
-      console.error('Auto-save tax declaration failed:', err);
+      console.error('[Payroll] Save tax declaration failed:', err);
+      if (!silent) alert(err.response?.data?.error || err.message || 'Failed to save tax declaration');
+      return false;
     }
   };
 
@@ -456,13 +469,27 @@ const Payroll = () => {
 
   const handleSaveEdit = async (e) => {
     e.preventDefault();
+    if (!selectedRecord?.id) { alert('No payroll record selected.'); return; }
     setSubmitting(true);
     try {
-      await api.put(`/payroll/${selectedRecord.id}`, editForm);
+      const payload = {
+        ...editForm,
+        basic_pay: parseFloat(editForm.basic_pay) || 0,
+        hra: parseFloat(editForm.hra) || 0,
+        da: parseFloat(editForm.da) || 0,
+        conveyance: parseFloat(editForm.conveyance) || 0,
+        medical: parseFloat(editForm.medical) || 0,
+        special_allowance: parseFloat(editForm.special_allowance) || 0,
+        bonus: parseFloat(editForm.bonus) || 0,
+        tds: parseFloat(editForm.tds) || 0,
+      };
+      const res = await api.put(`/payroll/${selectedRecord.id}`, payload);
+      console.log('[Payroll] Record updated:', res.data);
       await fetchAll();
       setShowEditModal(false);
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to update payroll record');
+      console.error('[Payroll] Update error:', err);
+      alert(err.response?.data?.error || err.message || 'Failed to update payroll record');
     } finally {
       setSubmitting(false);
     }
@@ -471,18 +498,22 @@ const Payroll = () => {
   // ── Form 16 ──────────────────────────────────────────────────────────────
   const handleUploadForm16 = async (e) => {
     e.preventDefault();
+    if (!form16Form.employee_id) { alert('Please select an employee.'); return; }
+    if (!form16Form.financial_year) { alert('Financial year is required.'); return; }
     setSubmitting(true);
     try {
-      await api.post('/payroll/form16', {
+      const res = await api.post('/payroll/form16', {
         employee_id: form16Form.employee_id,
         financial_year: form16Form.financial_year,
         metadata: { file_name: `Form16_${form16Form.financial_year}_${form16Form.employee_id}.pdf`, uploaded_at: new Date().toISOString() }
       });
+      console.log('[Payroll] Form 16 uploaded:', res.data);
       await fetchAll();
       setShowForm16Modal(false);
       setForm16Form({ employee_id: '', financial_year: '2024-25' });
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to upload Form 16');
+      console.error('[Payroll] Form 16 upload error:', err);
+      alert(err.response?.data?.error || err.message || 'Failed to upload Form 16');
     } finally {
       setSubmitting(false);
     }
@@ -970,7 +1001,7 @@ const Payroll = () => {
           <div className="space-y-6">
             {/* Back bar */}
             <div className="flex items-center gap-3">
-              <button onClick={async () => { await saveTaxDecl(selEmpId, taxDecl); setTaxDeclEmpId(null); }} className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-primary-700 transition-colors">
+              <button onClick={async () => { await saveTaxDecl(selEmpId, taxDecl, true); setTaxDeclEmpId(null); }} className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-primary-700 transition-colors">
                 ← Back to all employees
               </button>
               <span className="text-slate-300">|</span>
@@ -1179,7 +1210,8 @@ const Payroll = () => {
                   onClick={async () => {
                     const updated = { ...taxDecl, submitted: true };
                     td(() => updated);
-                    await saveTaxDecl(selEmpId, updated);
+                    const ok = await saveTaxDecl(selEmpId, updated, false);
+                    if (ok) alert('Tax declaration submitted successfully!');
                   }}
                   className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-sm">
                   <CheckCircle size={16} />
