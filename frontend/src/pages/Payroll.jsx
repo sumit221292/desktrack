@@ -1195,7 +1195,7 @@ const Payroll = () => {
                       </div>
                       <div className="relative w-36 shrink-0">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">₹</span>
-                        <input type="number" min="0" max={max||undefined} value={+(taxDecl[key]||0)}
+                        <input type="number" min="0" step="0.01" max={max||undefined} value={+(taxDecl[key]||0)}
                           onChange={e => td(p=>({...p, [key]: parseFloat(e.target.value)||0}))}
                           className="w-full pl-6 pr-2 py-2 border border-slate-200 rounded-lg text-sm font-semibold bg-slate-50 text-right focus:ring-2 focus:ring-primary-500/20" />
                       </div>
@@ -1563,7 +1563,7 @@ const Payroll = () => {
                         <label className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5 block">{label}</label>
                         <div className="relative">
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">{currencyConfig?.symbol || '₹'}</span>
-                          <input type="number" min="0"
+                          <input type="number" min="0" step="0.01"
                             required={key === 'basic_pay'}
                             value={salaryForm[key] || ''}
                             onChange={e => setSalaryForm(p => ({ ...p, [key]: e.target.value }))}
@@ -1773,8 +1773,8 @@ const Payroll = () => {
                   <label className="text-xs font-bold text-slate-600 mb-1 block">{label}</label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">{currencyConfig?.symbol || '₹'}</span>
-                    <input type="number" min="0"
-                      value={editForm[key] || 0}
+                    <input type="number" min="0" step="0.01"
+                      value={editForm[key] ?? ''}
                       onChange={e => setEditForm(p => ({ ...p, [key]: e.target.value }))}
                       className="w-full pl-7 pr-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-primary-500/20 bg-slate-50"
                     />
