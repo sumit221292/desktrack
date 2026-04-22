@@ -230,6 +230,7 @@ const Payroll = () => {
   // per-employee declarations keyed by employee_id
   const [taxDeclMap,     setTaxDeclMap]     = useState({});
   const [taxDeclEmpId,   setTaxDeclEmpId]   = useState(null);
+  const [selectedEmpsForRun, setSelectedEmpsForRun] = useState({});
   const [editingSlabs,   setEditingSlabs]   = useState(false);
 
   // helpers
@@ -342,15 +343,35 @@ const Payroll = () => {
   useEffect(() => { fetchAll(); }, [selMonth, selYear]);
 
   // ── Run Payroll ──────────────────────────────────────────────────────────
+  const openRunModal = () => {
+    // Pre-select all employees with salary structures
+    const initialSelection = {};
+    employees.forEach(emp => {
+      const hasStructure = salaryStructures.some(s => s.employee_id === emp.id);
+      if (hasStructure) initialSelection[emp.id] = true;
+    });
+    setSelectedEmpsForRun(initialSelection);
+    setShowRunModal(true);
+  };
+
   const handleRunPayroll = async () => {
-    // If records exist, confirm re-processing (will delete old and recreate)
+    const selectedIds = Object.keys(selectedEmpsForRun).filter(id => selectedEmpsForRun[id]).map(id => parseInt(id));
+    if (selectedIds.length === 0) {
+      alert('Please select at least one employee to process payroll.');
+      return;
+    }
     const force = payrollRecords.length > 0;
-    if (force && !window.confirm(`Re-run payroll for ${currentMonthLabel}? This will delete existing records and re-calculate with current salary structures & attendance.`)) {
+    if (force && !window.confirm(`Re-run payroll for ${selectedIds.length} employee(s) for ${currentMonthLabel}? This will delete existing records and re-calculate with current salary structures & attendance.`)) {
       return;
     }
     setSubmitting(true);
     try {
-      const res = await api.post('/payroll/run', { month: selMonth, year: selYear, force });
+      const res = await api.post('/payroll/run', {
+        month: selMonth,
+        year: selYear,
+        force,
+        employee_ids: selectedIds
+      });
       console.log('[Payroll] Run result:', res.data);
       await fetchAll();
       setShowRunModal(false);
@@ -595,7 +616,7 @@ const Payroll = () => {
           </div>
           {isAdmin && (
             <Button
-              onClick={() => setShowRunModal(true)}
+              onClick={openRunModal}
               className="gap-2 shadow-lg bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20 h-[42px]"
             >
               <CurrencyIcon size={18} />
@@ -1390,40 +1411,120 @@ const Payroll = () => {
       )}
 
       {/* ══ MODAL: Run Payroll ══ */}
-      <Modal isOpen={showRunModal} onClose={() => setShowRunModal(false)} title="Run Payroll">
-        <div className="space-y-5">
-          <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800 font-medium">
-            This will process payroll for all active employees with a salary structure for <strong>{currentMonthLabel}</strong>.
-          </div>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div className="p-3 bg-slate-50 rounded-xl">
-              <p className="text-slate-400 text-xs mb-1">Employees with structure</p>
-              <p className="font-bold text-slate-900">{salaryStructures.length}</p>
+      <Modal isOpen={showRunModal} onClose={() => setShowRunModal(false)} title={`Run Payroll — ${currentMonthLabel}`} maxWidth="max-w-2xl">
+        {(() => {
+          const selectedCount = Object.values(selectedEmpsForRun).filter(Boolean).length;
+          const empsWithStruct = employees.filter(e => salaryStructures.some(s => s.employee_id === e.id));
+          const allSelected = empsWithStruct.length > 0 && empsWithStruct.every(e => selectedEmpsForRun[e.id]);
+          const toggleAll = () => {
+            const next = {};
+            if (!allSelected) empsWithStruct.forEach(e => next[e.id] = true);
+            setSelectedEmpsForRun(next);
+          };
+          // Aggregate deduction types from all salary structures
+          const deductionLabels = new Map();
+          salaryStructures.forEach(ss => {
+            try {
+              const parsed = typeof ss.deductions_json === 'string' ? JSON.parse(ss.deductions_json || '{}') : (ss.deductions_json || {});
+              const deds = parsed.deductions || {};
+              Object.entries(deds).forEach(([key, d]) => {
+                if (d.enabled) {
+                  const desc = d.type === 'percent' ? `${d.value}% of ${d.base || 'gross'}` : `₹${d.value}`;
+                  deductionLabels.set(d.label || key, desc);
+                }
+              });
+              (parsed.customDeductions || []).filter(cd => cd.value > 0 && cd.category !== 'earning').forEach(cd => {
+                const desc = cd.type === 'percent' ? `${cd.value}%` : `₹${cd.value}`;
+                deductionLabels.set(cd.label, desc);
+              });
+            } catch {}
+          });
+
+          return (
+            <div className="space-y-5">
+              <div className="grid grid-cols-3 gap-3 text-sm">
+                <div className="p-3 bg-emerald-50 rounded-xl">
+                  <p className="text-emerald-600 text-xs mb-1 font-bold">Selected</p>
+                  <p className="font-bold text-emerald-900 text-lg">{selectedCount}</p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl">
+                  <p className="text-slate-500 text-xs mb-1 font-bold">With Structure</p>
+                  <p className="font-bold text-slate-900 text-lg">{empsWithStruct.length}</p>
+                </div>
+                <div className="p-3 bg-amber-50 rounded-xl">
+                  <p className="text-amber-600 text-xs mb-1 font-bold">No Structure</p>
+                  <p className="font-bold text-amber-700 text-lg">{employeesWithoutStructure.length}</p>
+                </div>
+              </div>
+
+              {/* Employee Selection */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <div className="bg-slate-50 px-4 py-2.5 flex items-center justify-between border-b border-slate-200">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                      className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
+                    <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Select Employees</span>
+                  </label>
+                  <span className="text-xs text-slate-400">{selectedCount} of {empsWithStruct.length} selected</span>
+                </div>
+                <div className="max-h-56 overflow-y-auto custom-scrollbar divide-y divide-slate-100">
+                  {empsWithStruct.length === 0 ? (
+                    <div className="p-6 text-center text-sm text-slate-400">No employees with salary structure. Please set up structures first.</div>
+                  ) : empsWithStruct.map(emp => {
+                    const ss = salaryStructures.find(s => s.employee_id === emp.id);
+                    const gross = [ss?.basic_pay, ss?.hra, ss?.da, ss?.conveyance, ss?.medical, ss?.special_allowance].reduce((a, b) => a + (parseFloat(b) || 0), 0);
+                    return (
+                      <label key={emp.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 cursor-pointer">
+                        <input type="checkbox"
+                          checked={!!selectedEmpsForRun[emp.id]}
+                          onChange={() => setSelectedEmpsForRun(p => ({ ...p, [emp.id]: !p[emp.id] }))}
+                          className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
+                        <div className="w-7 h-7 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-[10px] font-bold">
+                          {(emp.first_name || '?')[0]}{(emp.last_name || '?')[0]}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-slate-800 truncate">{emp.first_name} {emp.last_name}</p>
+                          <p className="text-[10px] text-slate-400">{emp.employee_code}</p>
+                        </div>
+                        <span className="text-xs font-semibold text-slate-600">{formatCurrency(gross)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Calculation Rules — dynamic */}
+              <div className="bg-slate-50 rounded-xl p-4 text-xs text-slate-600">
+                <p className="font-bold text-slate-700 mb-2">Calculation Rules</p>
+                <div className="space-y-1">
+                  <p>• <strong>Payable Days</strong> = Present + (0.5 × Half Day) + Paid Leaves</p>
+                  <p>• <strong>Earned Gross</strong> = (Full Gross ÷ Working Days) × Payable Days</p>
+                  <p>• <strong>LOP</strong> = (Gross ÷ Working Days) × (Absent + Unpaid Leave)</p>
+                </div>
+                {deductionLabels.size > 0 && (
+                  <>
+                    <p className="pt-3 font-bold text-slate-700 mb-1">Deductions (from Salary Structures)</p>
+                    <div className="space-y-0.5">
+                      {[...deductionLabels.entries()].map(([label, desc]) => (
+                        <p key={label}>• <strong>{label}</strong>: {desc}</p>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {deductionLabels.size === 0 && (
+                  <p className="pt-2 text-amber-600 italic">No deductions configured in salary structures.</p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <Button variant="ghost" onClick={() => setShowRunModal(false)}>Cancel</Button>
+                <Button onClick={handleRunPayroll} disabled={submitting || selectedCount === 0} className="bg-emerald-600 hover:bg-emerald-700 gap-2">
+                  <CurrencyIcon size={16} />{submitting ? 'Processing…' : `Process ${selectedCount} Employee${selectedCount !== 1 ? 's' : ''}`}
+                </Button>
+              </div>
             </div>
-            <div className="p-3 bg-slate-50 rounded-xl">
-              <p className="text-slate-400 text-xs mb-1">Without structure (skipped)</p>
-              <p className="font-bold text-amber-600">{employeesWithoutStructure.length}</p>
-            </div>
-          </div>
-          <div className="bg-slate-50 rounded-xl p-4 space-y-1.5 text-xs text-slate-600">
-            <p className="font-bold text-slate-700 mb-2">Attendance-Based Calculation</p>
-            <p>• <strong>Payable Days</strong> = Present + (0.5 × Half Day) + Paid Leaves</p>
-            <p>• <strong>Per Day Salary</strong> = Full Gross ÷ Total Working Days (excl. weekends)</p>
-            <p>• <strong>Earned Gross</strong> = Per Day × Payable Days (prorated)</p>
-            <p>• <strong>LOP Deduction</strong> = Per Day × (Absent + Unpaid Leave days)</p>
-            <p className="pt-2 font-bold text-slate-700">Statutory</p>
-            <p>• PF: 12% of prorated Basic Pay</p>
-            <p>• ESI: 0.75% of earned Gross (if &lt; ₹21,000)</p>
-            <p>• Professional Tax: ₹200/month (if working)</p>
-            <p>• Net = Earned Gross − Total Deductions</p>
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="ghost" onClick={() => setShowRunModal(false)}>Cancel</Button>
-            <Button onClick={handleRunPayroll} disabled={submitting} className="bg-emerald-600 hover:bg-emerald-700 gap-2">
-              <CurrencyIcon size={16} />{submitting ? 'Processing…' : `Run ${currentMonthLabel} Payroll`}
-            </Button>
-          </div>
-        </div>
+          );
+        })()}
       </Modal>
 
       {/* ══ FULL-PAGE: Salary Structure ══ */}

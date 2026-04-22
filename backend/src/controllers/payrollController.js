@@ -263,15 +263,25 @@ const calculateAttendanceDays = async (companyId, employeeId, month, year) => {
 // Run payroll — attendance-based salary calculation
 const runPayroll = async (req, res) => {
   const companyId = req.tenantId;
-  const { month, year, force } = req.body;
+  const { month, year, force, employee_ids } = req.body;
 
   if (!month || !year) return res.status(400).json({ error: 'Month and year are required.' });
 
   try {
-    const employees = await query(
-      'SELECT * FROM employees WHERE company_id = $1 AND status = $2',
-      [companyId, 'ACTIVE']
-    );
+    let employees;
+    if (Array.isArray(employee_ids) && employee_ids.length > 0) {
+      // Filter to selected employees only
+      const allEmps = await query(
+        'SELECT * FROM employees WHERE company_id = $1 AND status = $2',
+        [companyId, 'ACTIVE']
+      );
+      employees = { rows: allEmps.rows.filter(e => employee_ids.includes(parseInt(e.id))) };
+    } else {
+      employees = await query(
+        'SELECT * FROM employees WHERE company_id = $1 AND status = $2',
+        [companyId, 'ACTIVE']
+      );
+    }
     const structures = await query(
       'SELECT * FROM salary_structures WHERE company_id = $1',
       [companyId]
@@ -334,12 +344,46 @@ const runPayroll = async (req, res) => {
       const proratedMed = r(medical);
       const proratedSA = r(special_allowance);
 
-      // Statutory deductions on prorated gross
-      const pf = Math.round(proratedBasic * 0.12 * 100) / 100;
-      const esi = earnedGross < 21000 ? Math.round(earnedGross * 0.0075 * 100) / 100 : 0;
-      const professional_tax = earnedGross > 0 ? 200 : 0;
-      const tds = 0;
-      const total_deductions = pf + esi + professional_tax + tds;
+      // Read configured deductions from salary structure (not hardcoded)
+      let configuredDeductions = {};
+      let customDeductions = [];
+      try {
+        const parsed = typeof ss.deductions_json === 'string' ? JSON.parse(ss.deductions_json || '{}') : (ss.deductions_json || {});
+        configuredDeductions = parsed.deductions || {};
+        customDeductions = parsed.customDeductions || [];
+      } catch (_) {}
+
+      // Calculate each deduction based on its config (percent/fixed, base: basic/gross/null)
+      const calcDeduction = (d) => {
+        if (!d || !d.enabled) return 0;
+        const value = parseFloat(d.value) || 0;
+        if (d.type === 'percent') {
+          const base = d.base === 'basic' ? proratedBasic
+            : d.base === 'gross' ? earnedGross
+            : earnedGross;
+          // Apply condition like gross_lt_21000
+          if (d.condition === 'gross_lt_21000' && earnedGross >= 21000) return 0;
+          return Math.round(base * value / 100 * 100) / 100;
+        } else {
+          // Fixed amount, only apply if earning something
+          return earnedGross > 0 ? value : 0;
+        }
+      };
+
+      const pf = calcDeduction(configuredDeductions.pf || { enabled: true, type: 'percent', value: 12, base: 'basic' });
+      const esi = calcDeduction(configuredDeductions.esi || { enabled: true, type: 'percent', value: 0.75, base: 'gross', condition: 'gross_lt_21000' });
+      const professional_tax = calcDeduction(configuredDeductions.pt || { enabled: true, type: 'fixed', value: 200 });
+      const tds = calcDeduction(configuredDeductions.tds || { enabled: false, type: 'fixed', value: 0 });
+
+      // Custom deductions total
+      let customDedTotal = 0;
+      customDeductions.filter(cd => cd.category !== 'earning').forEach(cd => {
+        const val = parseFloat(cd.value) || 0;
+        if (cd.type === 'percent') customDedTotal += Math.round(earnedGross * val / 100 * 100) / 100;
+        else customDedTotal += earnedGross > 0 ? val : 0;
+      });
+
+      const total_deductions = Math.round((pf + esi + professional_tax + tds + customDedTotal) * 100) / 100;
       const net_salary = Math.round((earnedGross - total_deductions) * 100) / 100;
 
       const result = await query(
