@@ -256,13 +256,18 @@ const Dashboard = () => {
         // Fetch Stats using the centralized api service
         const statsRes = await api.get(`/attendance/stats?date=${selectedDate}`);
         const statsData = statsRes.data || {};
-        
-        setStats([
-          { label: 'Total Employees', value: (statsData.totalEmployees ?? 0).toString(), icon: Users, color: 'text-primary-600', bg: 'bg-primary-100', trend: 'From database' },
-          { label: 'Present Today', value: (statsData.presentToday ?? 0).toString(), icon: CheckCircle, color: 'text-success-600', bg: 'bg-success-100', trend: 'Verified' },
-          { label: 'Late Arrivals', value: (statsData.lateArrivals ?? 0).toString(), icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', trend: 'Today' },
-          { label: 'Productivity', value: statsData.productivity || '0%', icon: TrendingUp, color: 'text-indigo-600', bg: 'bg-indigo-100', trend: 'Based on attendance' },
-        ]);
+
+        // Only set admin stats for non-employee roles. Employees get their
+        // personal stats after the attendance fetch below — setting admin
+        // stats here first would cause an admin-view flash on refresh.
+        if (!isEmployee) {
+          setStats([
+            { label: 'Total Employees', value: (statsData.totalEmployees ?? 0).toString(), icon: Users, color: 'text-primary-600', bg: 'bg-primary-100', trend: 'From database' },
+            { label: 'Present Today', value: (statsData.presentToday ?? 0).toString(), icon: CheckCircle, color: 'text-success-600', bg: 'bg-success-100', trend: 'Verified' },
+            { label: 'Late Arrivals', value: (statsData.lateArrivals ?? 0).toString(), icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', trend: 'Today' },
+            { label: 'Productivity', value: statsData.productivity || '0%', icon: TrendingUp, color: 'text-indigo-600', bg: 'bg-indigo-100', trend: 'Based on attendance' },
+          ]);
+        }
 
         // Fetch Recent Activity (today's attendance)
         const attendanceRes = await api.get(`/attendance?date=${selectedDate}`);
