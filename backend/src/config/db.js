@@ -1823,6 +1823,37 @@ function loadFromDisk() {
     memoryDB.form16_records = [];
     needsSave = true;
   }
+  // One-time cleanup: fix employees whose columns got shifted by the
+  // pre-fix 8-param INSERT (email had employee_code, employee_code had
+  // real email, role landed in designation_id, status in department_id,
+  // joining_date in salary_info).
+  if (Array.isArray(memoryDB.employees)) {
+    let fixedAny = false;
+    memoryDB.employees.forEach(e => {
+      const looksSwapped =
+        typeof e.email === 'string' && /^EMP-\d+$/i.test(e.email) &&
+        typeof e.employee_code === 'string' && e.employee_code.includes('@');
+      if (looksSwapped) {
+        const trueEmail = e.employee_code;
+        const trueCode = e.email;
+        const trueRole = typeof e.designation_id === 'string' && !Number.isFinite(+e.designation_id) ? e.designation_id : e.role;
+        const trueStatus = typeof e.department_id === 'string' && !Number.isFinite(+e.department_id) ? e.department_id : e.status;
+        const trueJoining = typeof e.salary_info === 'string' && /^\d{4}-\d{2}-\d{2}/.test(e.salary_info) ? e.salary_info : e.joining_date;
+        e.email = trueEmail;
+        e.employee_code = trueCode;
+        e.role = trueRole || e.role || 'EMPLOYEE';
+        e.status = trueStatus || e.status || 'ACTIVE';
+        e.joining_date = trueJoining || e.joining_date;
+        e.designation_id = null;
+        e.department_id = null;
+        e.salary_info = '{}';
+        fixedAny = true;
+        console.log(`[Cleanup] Fixed swapped columns for employee id=${e.id} (${trueEmail})`);
+      }
+    });
+    if (fixedAny) needsSave = true;
+  }
+
   if (needsSave) saveToDisk();
 }
 
