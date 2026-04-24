@@ -448,26 +448,25 @@ const db = {
           resultRows = desg ? [desg] : [];
           rowCount = resultRows.length;
         }
-        // [INSERT] Employees
+        // [INSERT] Employees — parse column list from SQL so any caller's
+        // column order works (authController auto-create uses 8 cols,
+        // employeeController create uses 13+ cols).
         else if (q.includes('insert into employees')) {
-          const hasDoB = q.includes('date_of_birth');
+          const colMatch = text.match(/insert\s+into\s+employees\s*\(([^)]+)\)/i);
+          const cols = colMatch
+            ? colMatch[1].split(',').map(c => c.trim().toLowerCase())
+            : ['company_id','first_name','last_name','email','employee_code','designation_id','department_id','salary_info','joining_date','date_of_birth','shift_id','role','status'];
           const newEmp = {
             id: memoryDB.employees.length > 0 ? Math.max(...memoryDB.employees.map(e => e.id)) + 1 : 1,
-            company_id: params[0],
-            first_name: params[1],
-            last_name: params[2],
-            email: params[3],
-            employee_code: params[4],
-            designation_id: params[5],
-            department_id: params[6],
-            salary_info: typeof params[7] === 'string' ? params[7] : JSON.stringify(params[7] || {}),
-            joining_date: params[8],
-            date_of_birth: hasDoB ? (params[9] || null) : null,
-            shift_id: hasDoB ? params[10] : params[9],
-            role: (hasDoB ? params[11] : params[10]) || 'EMPLOYEE',
-            status: (hasDoB ? params[12] : params[11]) || 'ACTIVE',
+            role: 'EMPLOYEE',
+            status: 'ACTIVE',
             created_at: new Date()
           };
+          cols.forEach((col, i) => {
+            let val = params[i];
+            if (col === 'salary_info') val = typeof val === 'string' ? val : JSON.stringify(val || {});
+            newEmp[col] = val;
+          });
           memoryDB.employees.push(newEmp);
           saveToDisk();
           resultRows = [newEmp];
