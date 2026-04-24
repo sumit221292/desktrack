@@ -790,11 +790,31 @@ const Payroll = () => {
           <div className="divide-y divide-slate-100">
             {employees.map(emp => {
               const ss = salaryStructures.find(s => s.employee_id === emp.id);
-              const gross = ss ? [ss.basic_pay, ss.hra, ss.da, ss.conveyance, ss.medical, ss.special_allowance].reduce((a,b) => a + (parseFloat(b)||0), 0) : 0;
               const basic = parseFloat(ss?.basic_pay) || 0;
-              const pf = Math.round(basic * 0.12);
-              const esi = gross < 21000 ? Math.round(gross * 0.0075) : 0;
-              const net = gross - pf - esi - 200;
+              const baseGross = ss ? [ss.basic_pay, ss.hra, ss.da, ss.conveyance, ss.medical, ss.special_allowance].reduce((a,b) => a + (parseFloat(b)||0), 0) : 0;
+              // Respect the saved deductions_json toggles (PF/ESI/PT/TDS and custom). Do NOT hardcode.
+              let gross = baseGross;
+              let totalDed = 0;
+              if (ss) {
+                try {
+                  const parsed = typeof ss.deductions_json === 'string' ? JSON.parse(ss.deductions_json || '{}') : (ss.deductions_json || {});
+                  const custEarnTotal = (parsed.customDeductions || [])
+                    .filter(cd => cd.category === 'earning')
+                    .reduce((sum, cd) => sum + (cd.type === 'percent' ? Math.round(baseGross * (parseFloat(cd.value)||0) / 100) : (parseFloat(cd.value)||0)), 0);
+                  gross = baseGross + custEarnTotal;
+                  const deds = parsed.deductions || {};
+                  Object.values(deds).forEach(d => {
+                    if (!d || !d.enabled) return;
+                    if (d.condition === 'gross_lt_21000' && gross >= 21000) return;
+                    const base = d.base === 'basic' ? basic : gross;
+                    totalDed += d.type === 'percent' ? Math.round(base * (parseFloat(d.value)||0) / 100) : (parseFloat(d.value)||0);
+                  });
+                  totalDed += (parsed.customDeductions || [])
+                    .filter(cd => cd.category !== 'earning')
+                    .reduce((sum, cd) => sum + (cd.type === 'percent' ? Math.round(gross * (parseFloat(cd.value)||0) / 100) : (parseFloat(cd.value)||0)), 0);
+                } catch { /* keep defaults */ }
+              }
+              const net = gross - totalDed;
               return (
                 <div key={emp.id}
                   className="px-6 py-4 flex items-center justify-between hover:bg-primary-50/40 transition-colors cursor-pointer group"
