@@ -1336,16 +1336,6 @@ async function runMigrations() {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        CREATE TABLE IF NOT EXISTS attendance_events (
-          id SERIAL PRIMARY KEY,
-          company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-          employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-          attendance_id INTEGER REFERENCES attendance(id) ON DELETE CASCADE,
-          event_type VARCHAR(50) NOT NULL,
-          event_time TIMESTAMP NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
         CREATE TABLE IF NOT EXISTS users (
           id SERIAL PRIMARY KEY,
           email VARCHAR(255) NOT NULL UNIQUE,
@@ -1404,6 +1394,16 @@ async function runMigrations() {
           ai_summary TEXT,
           remarks TEXT,
           location_metadata JSONB,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS attendance_events (
+          id SERIAL PRIMARY KEY,
+          company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+          employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+          attendance_id INTEGER REFERENCES attendance(id) ON DELETE CASCADE,
+          event_type VARCHAR(50) NOT NULL,
+          event_time TIMESTAMP NOT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
