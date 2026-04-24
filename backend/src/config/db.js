@@ -6,14 +6,15 @@ const path = require('path');
 const DB_FILE = path.join(__dirname, '../../db.json');
 
 const poolProps = process.env.DATABASE_URL
-  ? { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 5000 }
+  ? { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 15000, idleTimeoutMillis: 30000 }
   : {
       user: process.env.DB_USER || 'postgres',
       host: process.env.DB_HOST || 'localhost',
       database: process.env.DB_NAME || 'desktrack',
       password: process.env.DB_PASSWORD || 'postgres',
       port: process.env.DB_PORT || 5432,
-      connectionTimeoutMillis: 5000,
+      connectionTimeoutMillis: 15000,
+      idleTimeoutMillis: 30000,
     };
 
 const pool = process.env.NODE_ENV === 'test' ? null : new Pool(poolProps);
@@ -1260,11 +1261,31 @@ const db = {
     }
   },
   pool,
+  get runMigrations() { return runMigrations; },
 };
 
 // Persistence and Migration Logic
+async function waitForPool(maxAttempts = 10, delayMs = 2000) {
+  for (let i = 1; i <= maxAttempts; i++) {
+    try {
+      await pool.query('SELECT 1');
+      console.log(`--- DB: Pool ready on attempt ${i} ---`);
+      return true;
+    } catch (err) {
+      console.log(`--- DB: Pool not ready (attempt ${i}/${maxAttempts}): ${err.message} — retrying in ${delayMs}ms ---`);
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+  return false;
+}
+
 async function runMigrations() {
   if (pool) {
+    const ok = await waitForPool();
+    if (!ok) {
+      console.error('--- DB: Pool never became ready — migrations aborted, app will use memoryDB fallback ---');
+      return;
+    }
     try {
       console.log('--- DB: Starting PostgreSQL Migrations ---');
       await pool.query(`
@@ -1752,6 +1773,7 @@ async function runMigrations() {
       console.log('--- DB: PostgreSQL Migrations Complete ---');
     } catch (err) {
       console.error('--- DB: Migration Error ---', err.message);
+      console.error('--- DB: Migration Stack ---', err.stack);
     }
   }
 }
