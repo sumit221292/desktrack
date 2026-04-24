@@ -5,14 +5,15 @@ const path = require('path');
 
 const DB_FILE = path.join(__dirname, '../../db.json');
 
-const poolProps = process.env.DATABASE_URL 
-  ? { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } }
+const poolProps = process.env.DATABASE_URL
+  ? { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 5000 }
   : {
       user: process.env.DB_USER || 'postgres',
       host: process.env.DB_HOST || 'localhost',
       database: process.env.DB_NAME || 'desktrack',
       password: process.env.DB_PASSWORD || 'postgres',
       port: process.env.DB_PORT || 5432,
+      connectionTimeoutMillis: 5000,
     };
 
 const pool = process.env.NODE_ENV === 'test' ? null : new Pool(poolProps);
