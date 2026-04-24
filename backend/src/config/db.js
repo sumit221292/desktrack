@@ -1712,6 +1712,41 @@ async function runMigrations() {
         await pool.query("INSERT INTO designations (id, name, company_id) VALUES (3, 'Developer', 1) ON CONFLICT DO NOTHING");
       }
 
+      // Seed default leave types
+      const ltCount = await pool.query('SELECT COUNT(*) FROM leave_types');
+      if (parseInt(ltCount.rows[0].count) === 0) {
+        await pool.query("INSERT INTO leave_types (company_id, name, code, annual_quota, carry_forward) VALUES (1, 'Casual Leave', 'CL', 12, false)");
+        await pool.query("INSERT INTO leave_types (company_id, name, code, annual_quota, carry_forward) VALUES (1, 'Sick Leave', 'SL', 6, false)");
+        await pool.query("INSERT INTO leave_types (company_id, name, code, annual_quota, carry_forward) VALUES (1, 'Earned Leave', 'EL', 15, true)");
+        await pool.query("INSERT INTO leave_types (company_id, name, code, annual_quota, carry_forward) VALUES (1, 'Unpaid Leave', 'UL', 0, false)");
+        console.log('--- DB: Seeded default leave types ---');
+      }
+
+      // Seed default custom fields (used by the Employee form)
+      const cfCount = await pool.query('SELECT COUNT(*) FROM custom_fields');
+      if (parseInt(cfCount.rows[0].count) === 0) {
+        const defaults = [
+          ['First Name', 'text', true, 'first_name', null],
+          ['Last Name', 'text', true, 'last_name', null],
+          ['Work Email', 'text', true, 'email', null],
+          ['Employee ID', 'text', true, 'employee_code', null],
+          ['Department', 'dropdown', true, 'department_id', null],
+          ['Designation', 'dropdown', true, 'designation_id', null],
+          ['Assigned Shift', 'dropdown', true, 'shift_id', null],
+          ['Joining Date', 'date', true, 'joining_date', null],
+          ['Role', 'dropdown', true, 'role', '[{"label":"Employee","value":"EMPLOYEE"},{"label":"HR","value":"HR"},{"label":"Manager","value":"MANAGER"},{"label":"Super Admin","value":"SUPER_ADMIN"}]'],
+          ['Date of Birth', 'date', false, 'date_of_birth', null],
+        ];
+        for (const [label, type, required, fieldId, options] of defaults) {
+          await pool.query(
+            `INSERT INTO custom_fields (module_name, field_name, field_type, is_required, company_id, field_id, options)
+             VALUES ('employees', $1, $2, $3, 1, $4, $5)`,
+            [label, type, required, fieldId, options]
+          );
+        }
+        console.log('--- DB: Seeded default custom fields for employees module ---');
+      }
+
       // Seed initial Shift if it doesn't exist
       const shiftCount = await pool.query('SELECT COUNT(*) FROM shifts');
       if (parseInt(shiftCount.rows[0].count) === 0) {
