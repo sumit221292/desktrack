@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Search, Filter, MoreHorizontal, UserX, AlertCircle, Edit, Trash2, Calendar as CalendarIcon, Clock, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Card } from '../components/ui/Card';
@@ -25,7 +25,10 @@ const EmployeeManagement = () => {
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [showFilters, setShowFilters] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [searchParams] = useSearchParams();
 
   const fetchEmployees = async () => {
     try {
@@ -64,6 +67,12 @@ const EmployeeManagement = () => {
   useEffect(() => {
     fetchData();
   }, []);
+
+  // Pick up a search term coming from the global Topbar search (?q=...)
+  useEffect(() => {
+    const q = searchParams.get('q');
+    if (q) setSearchTerm(q);
+  }, [searchParams]);
 
   // Standard employee columns — anything else is a custom field value
   const STANDARD_KEYS = new Set([
@@ -162,6 +171,26 @@ const EmployeeManagement = () => {
     }
   };
 
+  const handleExportCSV = () => {
+    const rows = filteredEmployees;
+    if (!rows.length) { alert('No employees to export.'); return; }
+    const headers = ['Employee Code', 'First Name', 'Last Name', 'Email', 'Role', 'Status', 'Joining Date'];
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [headers.join(',')];
+    rows.forEach(e => lines.push(
+      [e.employee_code, e.first_name, e.last_name, e.email, e.role, e.status, e.joining_date].map(esc).join(',')
+    ));
+    const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `employees-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const getStatusBadge = (status) => {
     switch(status?.toUpperCase()) {
       case 'ACTIVE': return <Badge variant="success">Active</Badge>;
@@ -172,6 +201,7 @@ const EmployeeManagement = () => {
   };
 
   const filteredEmployees = employees.filter(emp => {
+    if (statusFilter !== 'ALL' && (emp.status || '').toUpperCase() !== statusFilter) return false;
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
     return (
@@ -221,11 +251,30 @@ const EmployeeManagement = () => {
             />
           </div>
           <div className="flex items-center space-x-3 w-full sm:w-auto">
-            <Button variant="secondary" className="gap-2 w-full sm:w-auto">
-              <Filter size={16} />
-              <span className="hidden sm:inline">Filters</span>
-            </Button>
-            <Button variant="secondary" className="gap-2 w-full sm:w-auto">
+            <div className="relative">
+              <Button variant="secondary" onClick={() => setShowFilters(v => !v)} className="gap-2 w-full sm:w-auto">
+                <Filter size={16} />
+                <span className="hidden sm:inline">{statusFilter === 'ALL' ? 'Filters' : `Status: ${statusFilter.charAt(0) + statusFilter.slice(1).toLowerCase()}`}</span>
+              </Button>
+              {showFilters && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowFilters(false)} />
+                  <div className="absolute right-0 mt-2 w-44 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1">
+                    <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Filter by status</p>
+                    {['ALL', 'ACTIVE', 'INACTIVE', 'RESIGNED'].map(s => (
+                      <button
+                        key={s}
+                        onClick={() => { setStatusFilter(s); setShowFilters(false); }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 transition-colors ${statusFilter === s ? 'text-primary-600 font-bold' : 'text-slate-600'}`}
+                      >
+                        {s === 'ALL' ? 'All' : s.charAt(0) + s.slice(1).toLowerCase()}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <Button variant="secondary" onClick={handleExportCSV} className="gap-2 w-full sm:w-auto">
                Export CSV
             </Button>
           </div>

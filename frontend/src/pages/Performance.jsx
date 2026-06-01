@@ -167,7 +167,10 @@ const Performance = () => {
                 </div>
               ))}
             </div>
-            <button className="w-full mt-8 py-3 rounded-xl bg-slate-50 text-slate-600 text-xs font-bold hover:bg-slate-100 transition-colors uppercase tracking-widest">
+            <button
+              onClick={() => navigate('/employees')}
+              className="w-full mt-8 py-3 rounded-xl bg-slate-50 text-slate-600 text-xs font-bold hover:bg-slate-100 transition-colors uppercase tracking-widest"
+            >
               View All Rankings
             </button>
           </Card>
