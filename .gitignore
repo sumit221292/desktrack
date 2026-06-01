@@ -23,3 +23,5 @@ backend/test_output.txt
 backend/reset-prod.js
 backend/backup-prod-*.json
 backend/response.json
+# Local backup output (the daily backup runs in GitHub Actions, not the repo)
+/backups/

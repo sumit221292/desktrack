@@ -1,0 +1,41 @@
+name: Daily DB Backup
+
+# Runs every day at 23:59 IST (Asia/Kolkata).
+# GitHub cron is in UTC, so 23:59 IST = 18:29 UTC.
+# Note: scheduled runs may be delayed a few minutes during GitHub peak load.
+on:
+  schedule:
+    - cron: '29 18 * * *'
+  workflow_dispatch: {}   # lets you trigger a backup manually from the Actions tab
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pg driver
+        run: npm install pg@8
+
+      - name: Compute date stamp (IST)
+        id: stamp
+        run: echo "date=$(TZ=Asia/Kolkata date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Run backup
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/backup-db.js
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ steps.stamp.outputs.date }}
+          path: backups/*.json
+          retention-days: 90
+          if-no-files-found: error
