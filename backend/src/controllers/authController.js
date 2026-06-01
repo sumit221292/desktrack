@@ -139,12 +139,32 @@ const googleLogin = async (req, res) => {
         const employeeCode = 'EMP-' + String(userId).padStart(3, '0');
 
         try {
-          await query(
+          const empInsert = await query(
             `INSERT INTO employees (company_id, first_name, last_name, employee_code, email, role, status, joining_date)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
             [companyId, firstName, lastName, employeeCode, email, initialRole, 'ACTIVE', new Date().toISOString().split('T')[0]]
           );
+          const newEmployeeId = empInsert.rows[0].id;
+          employeeId = newEmployeeId;
           console.log('Auto-created employee record for:', email);
+
+          // Assign the company's default shift so check-in works immediately.
+          // Without this, the new employee has no employee_shifts row and
+          // check-in fails with "No assigned shift found."
+          const defaultShift = await query(
+            'SELECT id FROM shifts WHERE company_id = $1 ORDER BY id ASC LIMIT 1',
+            [companyId]
+          );
+          if (defaultShift.rows.length > 0) {
+            await query(
+              `INSERT INTO employee_shifts (employee_id, shift_id, company_id, effective_from)
+               VALUES ($1, $2, $3, CURRENT_DATE) ON CONFLICT DO NOTHING`,
+              [newEmployeeId, defaultShift.rows[0].id, companyId]
+            );
+            console.log('Assigned default shift', defaultShift.rows[0].id, 'to employee:', email);
+          } else {
+            console.warn('No shift exists for company', companyId, '- could not assign default shift to', email);
+          }
         } catch (empErr) {
           console.error('Failed to auto-create employee (non-fatal):', empErr.message);
         }
