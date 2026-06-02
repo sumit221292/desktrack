@@ -1227,20 +1227,14 @@ const Payroll = () => {
                       ) : (
                         <div className="space-y-2">
                           {(() => {
-                            let base = 0, lower = 0;
                             const fmtR = v => `₹${Math.round(v).toLocaleString('en-IN')}`;
                             return slabs.map((s, i) => {
-                              const threshold = lower;
                               const slabText = i === 0
                                 ? `Up to ${fmtR(s.to ?? 0)}`
-                                : (s.to == null ? `Above ${fmtR(threshold)}` : `${fmtR(s.from)} – ${fmtR(s.to)}`);
-                              const rateText = s.rate === 0 ? 'Nil'
-                                : base === 0 ? `${s.rate}% above ${fmtR(threshold)}`
-                                : `${fmtR(base)} + ${s.rate}% above ${fmtR(threshold)}`;
-                              if (s.to != null) { base += Math.round((s.to - lower) * s.rate / 100); lower = s.to; }
+                                : (s.to == null ? `Above ${fmtR((s.from ?? 1) - 1)}` : `${fmtR(s.from)} – ${fmtR(s.to)}`);
                               return (
                                 <p key={i} className="text-sm text-slate-600 font-mono">
-                                  • {slabText}: <strong>{rateText}</strong>
+                                  • {slabText}: <strong>{s.rate === 0 ? 'Nil' : `${s.rate}%`}</strong>
                                 </p>
                               );
                             });
