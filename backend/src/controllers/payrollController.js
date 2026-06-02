@@ -468,7 +468,8 @@ const getPayslip = async (req, res) => {
   const { id } = req.params;
   try {
     const result = await query(
-      `SELECT pr.*, e.first_name, e.last_name, e.employee_code, e.email, d.name as department_name, des.name as designation_name
+      `SELECT pr.*, e.first_name, e.last_name, e.employee_code, e.email, e.joining_date,
+              d.name as department_name, des.name as designation_name
        FROM payroll_records pr
        LEFT JOIN employees e ON pr.employee_id = e.id
        LEFT JOIN departments d ON e.department_id = d.id
