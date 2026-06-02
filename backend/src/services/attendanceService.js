@@ -896,23 +896,28 @@ const getDailyAttendance = async (companyId, dateStr) => {
       const shiftMins = shiftHrs * 60;
       const existingFlags = existing.flags ? (typeof existing.flags === 'string' ? JSON.parse(existing.flags) : existing.flags) : [];
       const missedCheckout = existingFlags.includes('MISSED_CHECKOUT') || (!checkOut && !isCheckedIn && new Date() > expectedOutISO);
+
+      // Real worked minutes. For a MISSED checkout the record's checkout is the
+      // 23:59 auto-close, so check-in→checkout would credit the abandoned tail as
+      // work. Instead credit only properly-closed session durations (orphan = 0).
+      const realSessionMins = empSessions.reduce((sum, s) => {
+        const dur = parseInt(s.duration_minutes) || 0;
+        return dur > 0 ? sum + dur : sum;
+      }, 0);
+      const netMins = missedCheckout ? realSessionMins : (daily_attendance.net_work_minutes || 0);
+
       if (missedCheckout) {
-        const workedMins = daily_attendance.net_work_minutes || 0;
-        if (workedMins >= shiftMins / 2) displayStatus = 'HALF DAY';
+        if (netMins >= shiftMins / 2) displayStatus = 'HALF DAY';
         else displayStatus = 'ABSENT';
       } else if (checkOut && !isCheckedIn) {
         // Checked out — enforce completion-based status
-        const workedMins = daily_attendance.net_work_minutes || 0;
-        if (workedMins < shiftMins / 2) displayStatus = 'ABSENT';
-        else if (workedMins < shiftMins) displayStatus = 'HALF DAY';
+        if (netMins < shiftMins / 2) displayStatus = 'ABSENT';
+        else if (netMins < shiftMins) displayStatus = 'HALF DAY';
         // else keep arrival-based status (ON TIME / LATE / OVER LATE)
       }
 
       // Shortfall
-      const shortfallMinutes = daily_attendance.net_work_minutes < shiftMins ? Math.floor(shiftMins - daily_attendance.net_work_minutes) : 0;
-
-      // Active / Break / Idle times
-      const netMins = daily_attendance.net_work_minutes || 0;
+      const shortfallMinutes = netMins < shiftMins ? Math.floor(shiftMins - netMins) : 0;
       const grossMins = daily_attendance.gross_minutes || 0;
       const idleMins = Math.max(0, grossMins - netMins - breakMins);
 
@@ -927,6 +932,7 @@ const getDailyAttendance = async (companyId, dateStr) => {
         is_checked_in: isCheckedIn,
         name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown',
         role: emp.role,
+        net_work_minutes: netMins,
         workHours: netMins > 0 ? fmtTime(netMins) : (isCheckedIn ? 'In Progress' : '0h 00m'),
         missedCheckout,
         expectedCheckout: expectedOutISO ? expectedOutISO.toISOString() : '-',
