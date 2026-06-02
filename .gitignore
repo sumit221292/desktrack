@@ -22,6 +22,8 @@ backend/test_output.txt
 # Production DB reset script + backups (contain credentials/PII — never commit)
 backend/reset-prod.js
 backend/seed-dummy.js
+backend/payroll-test.js
+backend/slip-verify.js
 backend/backup-prod-*.json
 backend/response.json
 # Local backup output (the daily backup runs in GitHub Actions, not the repo)
@@ -29,5 +31,7 @@ backend/response.json
 # Local audit specs (hardcoded short-lived JWT) + Playwright output
 tests/deep-audit.spec.js
 tests/headed-audit.spec.js
+tests/verify-fixes.spec.js
+tests/slip-screenshot.spec.js
 tests/lib/auditCore.js
 test-results/
