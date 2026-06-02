@@ -807,7 +807,12 @@ const getDailyAttendance = async (companyId, dateStr) => {
     if (existing) {
       const checkIn = new Date(existing.check_in);
       const lastOut = existing.last_check_out || existing.check_out;
-      const checkOut = lastOut ? new Date(lastOut) : null;
+      // If the latest session is still open (re-checked-in after an earlier
+      // checkout), the employee is currently IN. The stale last_check_out must
+      // NOT be treated as a checkout for live break/status calc — otherwise a
+      // break started after re-check-in is never detected as active (it gets
+      // capped at the old checkout time, which is before the break started).
+      const checkOut = (lastOut && !isCheckedIn) ? new Date(lastOut) : null;
 
       const empSessions = sessions.rows.filter(s => s.employee_id == emp.id);
       const empEvents = events.rows.filter(e => e.employee_id == emp.id);
@@ -844,7 +849,7 @@ const getDailyAttendance = async (companyId, dateStr) => {
       // Missed checkout override: check flags or if no checkout and past expected out
       const shiftMins = shiftHrs * 60;
       const existingFlags = existing.flags ? (typeof existing.flags === 'string' ? JSON.parse(existing.flags) : existing.flags) : [];
-      const missedCheckout = existingFlags.includes('MISSED_CHECKOUT') || (!checkOut && new Date() > expectedOutISO);
+      const missedCheckout = existingFlags.includes('MISSED_CHECKOUT') || (!checkOut && !isCheckedIn && new Date() > expectedOutISO);
       if (missedCheckout) {
         const workedMins = daily_attendance.net_work_minutes || 0;
         if (workedMins >= shiftMins / 2) displayStatus = 'HALF DAY';
