@@ -479,30 +479,55 @@ const getPayslip = async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Payslip not found.' });
 
     const record = result.rows[0];
-    // Fetch salary structure to get custom deductions
+
+    // Full (un-prorated) salary structure — lets the slip show full earnings
+    // plus a derived "Leave Deduction" line, matching the company format.
     const ssResult = await query(
-      'SELECT deductions_json FROM salary_structures WHERE employee_id = $1 AND company_id = $2',
+      `SELECT basic_pay, hra, da, conveyance, medical, special_allowance, deductions_json
+       FROM salary_structures WHERE employee_id = $1 AND company_id = $2
+       ORDER BY effective_from DESC NULLS LAST, id DESC LIMIT 1`,
       [record.employee_id, companyId]
     );
-    let customDeductions = [];
-    if (ssResult.rows.length > 0 && ssResult.rows[0].deductions_json) {
+    let structure = null, customDeductions = [];
+    if (ssResult.rows.length > 0) {
+      const s = ssResult.rows[0];
+      structure = {
+        basic_pay: parseFloat(s.basic_pay) || 0, hra: parseFloat(s.hra) || 0, da: parseFloat(s.da) || 0,
+        conveyance: parseFloat(s.conveyance) || 0, medical: parseFloat(s.medical) || 0, special_allowance: parseFloat(s.special_allowance) || 0,
+      };
       try {
-        const parsed = JSON.parse(ssResult.rows[0].deductions_json);
+        const parsed = typeof s.deductions_json === 'string' ? JSON.parse(s.deductions_json || '{}') : (s.deductions_json || {});
         customDeductions = parsed.customDeductions || [];
       } catch (_) {}
     }
-    // Compute custom deduction amounts against gross salary
     const gross = parseFloat(record.gross_salary) || 0;
     const resolvedCustom = customDeductions
-      .filter(cd => cd.label && (parseFloat(cd.value) || 0) > 0)
-      .map(cd => ({
-        label: cd.label,
-        amount: cd.type === 'percent'
-          ? Math.round(gross * (parseFloat(cd.value) || 0) / 100)
-          : (parseFloat(cd.value) || 0)
-      }));
+      .filter(cd => cd.label && cd.category !== 'earning' && (parseFloat(cd.value) || 0) > 0)
+      .map(cd => ({ label: cd.label, amount: cd.type === 'percent' ? Math.round(gross * (parseFloat(cd.value) || 0) / 100) : (parseFloat(cd.value) || 0) }));
 
-    res.json({ ...record, customDeductions: resolvedCustom });
+    // PAN / Bank details (stored as employee custom fields)
+    const cfv = await query(
+      `SELECT cf.field_id AS key, cfv.value FROM custom_field_values cfv
+       JOIN custom_fields cf ON cfv.field_id = cf.id AND cf.company_id = $2
+       WHERE cfv.entity_id = $1 AND cfv.company_id = $2 AND cf.field_id IN ('pan','bank_account','bank_ifsc','bank_name')`,
+      [record.employee_id, companyId]
+    ).catch(() => ({ rows: [] }));
+    const details = {};
+    cfv.rows.forEach(r => { details[r.key] = r.value; });
+
+    // Leave balances for the payroll year (per leave type)
+    const lb = await query(
+      `SELECT lt.code, lt.name, lb.total, lb.used, lb.remaining FROM leave_balances lb
+       JOIN leave_types lt ON lb.leave_type_id = lt.id
+       WHERE lb.employee_id = $1 AND lb.company_id = $2 AND lb.year = $3 ORDER BY lt.id`,
+      [record.employee_id, companyId, record.year]
+    ).catch(() => ({ rows: [] }));
+
+    res.json({
+      ...record,
+      pan: details.pan || '', bank_account: details.bank_account || '', bank_ifsc: details.bank_ifsc || '', bank_name: details.bank_name || '',
+      structure, customDeductions: resolvedCustom, leaveBalances: lb.rows,
+    });
   } catch (err) {
     console.error('Get Payslip Error:', err);
     res.status(500).json({ error: 'Server error retrieving payslip.' });

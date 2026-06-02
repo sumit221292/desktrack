@@ -1747,6 +1747,25 @@ async function runMigrations() {
         console.log('--- DB: Seeded default custom fields for employees module ---');
       }
 
+      // Ensure PAN / Bank custom fields exist (used on the salary slip). Idempotent.
+      const payslipFields = [
+        ['PAN', 'pan'], ['Bank Account Number', 'bank_account'],
+        ['Bank IFSC', 'bank_ifsc'], ['Bank Name', 'bank_name'],
+      ];
+      for (const [label, fid] of payslipFields) {
+        const exists = await pool.query(
+          "SELECT 1 FROM custom_fields WHERE company_id = 1 AND module_name = 'employees' AND field_id = $1",
+          [fid]
+        );
+        if (exists.rows.length === 0) {
+          await pool.query(
+            `INSERT INTO custom_fields (module_name, field_name, field_type, is_required, company_id, field_id, options)
+             VALUES ('employees', $1, 'text', false, 1, $2, null)`,
+            [label, fid]
+          );
+        }
+      }
+
       // Seed initial Shift if it doesn't exist
       const shiftCount = await pool.query('SELECT COUNT(*) FROM shifts');
       if (parseInt(shiftCount.rows[0].count) === 0) {

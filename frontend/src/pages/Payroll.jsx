@@ -24,131 +24,165 @@ const STATUS_MAP = {
 };
 
 // ─── Salary Slip Print Component ────────────────────────────────────────────
+const fmtDate = (s) => {
+  if (!s) return '—';
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  const day = d.getDate();
+  const suf = (day % 10 === 1 && day !== 11) ? 'st' : (day % 10 === 2 && day !== 12) ? 'nd' : (day % 10 === 3 && day !== 13) ? 'rd' : 'th';
+  return `${day}${suf} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`;
+};
+
+// Salary slip in Creative Frenzy's own format (Excel-style grid). Self-contained
+// CSS so it renders identically on screen and when printed to PDF.
 const SalarySlip = ({ data, company, formatCurrency, currencyConfig }) => {
   if (!data) return null;
-  const monthName = MONTHS[(data.month || 1) - 1];
-  const gross = parseFloat(data.gross_salary) || 0;
-  const net   = parseFloat(data.net_salary) || 0;
+  const fmt = (v) => Math.round(parseFloat(v) || 0).toLocaleString('en-IN');
+  const monthShort = `${MONTHS[(data.month || 1) - 1].slice(0, 3)}-${String(data.year).slice(2)}`;
 
-  const earning = [
-    { label: 'Basic Pay',          value: data.basic_pay },
-    { label: 'HRA',                value: data.hra },
-    { label: 'Dearness Allowance', value: data.da },
-    { label: 'Conveyance',         value: data.conveyance },
-    { label: 'Medical',            value: data.medical },
-    { label: 'Special Allowance',  value: data.special_allowance },
-    { label: 'Bonus',              value: data.bonus },
-  ].filter(e => parseFloat(e.value) > 0);
+  // Full salary structure (un-prorated) → income; falls back to record values.
+  const st = data.structure || {
+    basic_pay: data.basic_pay, hra: data.hra, da: data.da,
+    conveyance: data.conveyance, medical: data.medical, special_allowance: data.special_allowance,
+  };
+  const incomeRows = [
+    ['Basic Salary', st.basic_pay],
+    ['HRA', st.hra],
+    ['Special Allowance', st.special_allowance],
+    ['Medical Allowance', st.medical],
+    ['Telephone Allowance', st.conveyance],
+    ['Entertainment Allowance', st.da],
+  ].filter(r => parseFloat(r[1]) > 0);
+  const incomeTotal = incomeRows.reduce((s, r) => s + (parseFloat(r[1]) || 0), 0);
 
-  const deduction = [
-    { label: 'Provident Fund (12%)',  value: data.pf },
-    { label: 'ESI',                   value: data.esi },
-    { label: 'Professional Tax',      value: data.professional_tax },
-    { label: 'TDS',                   value: data.tds },
-    ...(data.customDeductions || []).map(cd => ({ label: cd.label, value: cd.amount })),
-  ].filter(d => parseFloat(d.value) > 0);
+  const earnedGross = parseFloat(data.gross_salary) || 0;
+  const leaveDeduction = Math.max(0, Math.round(incomeTotal - earnedGross));
+  const dedRows = [
+    ['PF', data.pf],
+    ['ESI', data.esi],
+    ['Professional Tax', data.professional_tax],
+    ['TDS', data.tds],
+    ...(data.customDeductions || []).map(cd => [cd.label, cd.amount]),
+  ].filter(r => parseFloat(r[1]) > 0);
+  if (leaveDeduction > 0) dedRows.push(['Leave Deduction', leaveDeduction]);
+  const dedTotal = dedRows.reduce((s, r) => s + (parseFloat(r[1]) || 0), 0);
+  const net = incomeTotal - dedTotal; // == data.net_salary (balanced by construction)
+
+  const balByCode = (code) => {
+    const b = (data.leaveBalances || []).find(x => x.code === code);
+    return b ? b.remaining : 0;
+  };
+  const leavesTaken = (parseFloat(data.paid_leave_days) || 0) + (parseFloat(data.unpaid_leave_days) || 0);
+
+  const leftInfo = [
+    ['Employee Name', `${data.first_name || ''} ${data.last_name || ''}`.trim() || '—'],
+    ['Employee Code', data.employee_code || '—'],
+    ['Designation', data.designation_name || '—'],
+    ['PAN', data.pan || '—'],
+    ['Bank Account Number', data.bank_account || '—'],
+    ['Bank IFSC', data.bank_ifsc || '—'],
+    ['Bank Name', data.bank_name || '—'],
+  ];
+  const rightInfo = [
+    ['Date of Joining', fmtDate(data.joining_date)],
+    ['Total Working Days', data.total_working_days || 0],
+    ['Working Days Attended', data.payable_days || 0],
+    ['Leaves Taken (month)', leavesTaken],
+    ['CL Balance', balByCode('CL')],
+    ['SL Balance', balByCode('SL')],
+    ['Currency', currencyConfig?.code || 'INR'],
+  ];
+  const maxRows = Math.max(incomeRows.length, dedRows.length);
 
   return (
-    <div id="salary-slip-print" className="bg-white p-8 font-sans text-sm max-w-3xl mx-auto border border-slate-200 rounded-xl">
-      {/* Header */}
-      <div className="flex justify-between items-start border-b-2 border-primary-600 pb-5 mb-5">
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <div className="w-10 h-10 rounded-xl bg-primary-600 flex items-center justify-center text-white font-black text-xl">D</div>
-            <h1 className="text-2xl font-black text-slate-900">DeskTrack</h1>
-          </div>
-          <p className="text-xs text-slate-500 ml-13">{company || 'Creative Frenzy'}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-lg font-bold text-slate-800">Salary Slip</p>
-          <p className="text-xs text-slate-500">{monthName} {data.year}</p>
-          <p className="text-xs text-slate-400 mt-1">Generated: {new Date().toLocaleDateString('en-IN')}</p>
+    <div id="salary-slip-print" className="cfp-root">
+      <style>{`
+        #salary-slip-print{background:#fff;color:#1a1a1a;font-family:Arial,Helvetica,sans-serif;font-size:12px;max-width:800px;margin:0 auto;}
+        #salary-slip-print *{box-sizing:border-box;}
+        #salary-slip-print .cfp-head{display:flex;align-items:center;gap:14px;border:1px solid #1a1a1a;border-bottom:none;padding:10px 14px;}
+        #salary-slip-print .cfp-co{flex:1;text-align:center;}
+        #salary-slip-print .cfp-co-name{font-weight:800;font-size:15px;letter-spacing:.3px;}
+        #salary-slip-print .cfp-co-addr{font-size:11px;font-weight:600;margin-top:2px;}
+        #salary-slip-print table{width:100%;border-collapse:collapse;}
+        #salary-slip-print td{border:1px solid #1a1a1a;padding:5px 9px;}
+        #salary-slip-print .bar{background:#1a1a1a;color:#fff;font-weight:700;text-align:center;}
+        #salary-slip-print .val{font-weight:700;text-align:center;}
+        #salary-slip-print .sec{background:#1a1a1a;color:#fff;font-weight:700;text-align:center;letter-spacing:.5px;}
+        #salary-slip-print .colhdr{background:#404040;color:#fff;font-weight:700;}
+        #salary-slip-print .amt{text-align:right;font-weight:600;}
+        #salary-slip-print .tot td{font-weight:800;background:#f0f0f0;}
+        #salary-slip-print .net td{background:#1a1a1a;color:#fff;font-weight:800;font-size:14px;}
+        #salary-slip-print .foot{text-align:center;font-weight:700;font-size:11px;padding:8px;border:1px solid #1a1a1a;border-top:none;}
+        #salary-slip-print .words{font-size:11px;font-weight:600;padding:6px 9px;border:1px solid #1a1a1a;border-top:none;}
+      `}</style>
+
+      {/* Company header */}
+      <div className="cfp-head">
+        <svg width="46" height="46" viewBox="0 0 46 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="1" y="1" width="44" height="44" rx="10" fill="#fff" stroke="#e2e8f0" />
+          <path d="M30 16a10 10 0 1 0 0 14" stroke="#F47A20" strokeWidth="5" strokeLinecap="round" fill="none" />
+          <path d="M22 14v18" stroke="#1F6FB2" strokeWidth="5" strokeLinecap="round" />
+        </svg>
+        <div className="cfp-co">
+          <div className="cfp-co-name">{(company || 'Creative Frenzy').toUpperCase()} PRIVATE LIMITED</div>
+          <div className="cfp-co-addr">Ground Floor, D-247/1, Sector-63, Noida, UP</div>
         </div>
       </div>
 
-      {/* Employee Info */}
-      <div className="grid grid-cols-2 gap-4 bg-slate-50 rounded-xl p-4 mb-5 text-xs">
-        <div className="space-y-1.5">
-          <div className="flex gap-2"><span className="text-slate-400 w-28">Employee Name</span><span className="font-bold text-slate-800">: {data.first_name} {data.last_name}</span></div>
-          <div className="flex gap-2"><span className="text-slate-400 w-28">Employee ID</span><span className="font-bold text-slate-800">: {data.employee_code}</span></div>
-          <div className="flex gap-2"><span className="text-slate-400 w-28">Designation</span><span className="font-bold text-slate-800">: {data.designation_name || '—'}</span></div>
-        </div>
-        <div className="space-y-1.5">
-          <div className="flex gap-2"><span className="text-slate-400 w-28">Department</span><span className="font-bold text-slate-800">: {data.department_name || '—'}</span></div>
-          <div className="flex gap-2"><span className="text-slate-400 w-28">Pay Period</span><span className="font-bold text-slate-800">: {monthName} {data.year}</span></div>
-          <div className="flex gap-2"><span className="text-slate-400 w-28">Currency</span><span className="font-bold text-slate-800">: {currencyConfig?.code || 'INR'}</span></div>
-        </div>
-      </div>
+      {/* SalarySlip / Month bar */}
+      <table>
+        <tbody>
+          <tr>
+            <td className="bar" style={{ width: '62%' }}>SalarySlip</td>
+            <td className="bar" style={{ width: '19%' }}>Month</td>
+            <td className="bar" style={{ width: '19%' }}>{monthShort}</td>
+          </tr>
+        </tbody>
+      </table>
 
-      {/* Attendance Summary */}
-      {(data.total_working_days > 0 || data.payable_days > 0) && (
-        <div className="mb-5">
-          <div className="bg-blue-600 text-white text-xs font-bold px-4 py-2 rounded-t-lg">ATTENDANCE SUMMARY</div>
-          <div className="border border-t-0 border-slate-200 rounded-b-lg p-3 bg-slate-50">
-            <div className="grid grid-cols-7 gap-2 text-[11px]">
-              <div className="text-center"><p className="text-slate-400">Working</p><p className="font-bold text-slate-800">{data.total_working_days || 0}</p></div>
-              <div className="text-center"><p className="text-slate-400">Present</p><p className="font-bold text-emerald-700">{data.present_days || 0}</p></div>
-              <div className="text-center"><p className="text-slate-400">Half Day</p><p className="font-bold text-amber-700">{data.half_days || 0}</p></div>
-              <div className="text-center"><p className="text-slate-400">Absent</p><p className="font-bold text-red-700">{data.absent_days || 0}</p></div>
-              <div className="text-center"><p className="text-slate-400">Paid Leave</p><p className="font-bold text-blue-700">{data.paid_leave_days || 0}</p></div>
-              <div className="text-center"><p className="text-slate-400">Unpaid</p><p className="font-bold text-rose-700">{data.unpaid_leave_days || 0}</p></div>
-              <div className="text-center"><p className="text-slate-400">Payable</p><p className="font-bold text-primary-700">{data.payable_days || 0}</p></div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Employee info grid */}
+      <table>
+        <tbody>
+          {leftInfo.map((row, i) => (
+            <tr key={i}>
+              <td style={{ width: '20%' }}>{row[0]}</td>
+              <td className="val" style={{ width: '30%' }}>{row[1]}</td>
+              <td style={{ width: '30%' }}>{rightInfo[i][0]}</td>
+              <td className="val" style={{ width: '20%' }}>{rightInfo[i][1]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
 
-      {/* Earnings & Deductions */}
-      <div className="grid grid-cols-2 gap-4 mb-5">
-        <div>
-          <div className="bg-emerald-600 text-white text-xs font-bold px-4 py-2 rounded-t-lg">EARNINGS</div>
-          <table className="w-full text-xs border border-t-0 border-slate-200 rounded-b-lg overflow-hidden">
-            <tbody>
-              {earning.map((e, i) => (
-                <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                  <td className="px-4 py-2 text-slate-600">{e.label}</td>
-                  <td className="px-4 py-2 text-right font-semibold text-slate-800">{formatCurrency(e.value)}</td>
-                </tr>
-              ))}
-              <tr className="bg-emerald-50 font-bold border-t border-emerald-200">
-                <td className="px-4 py-2 text-emerald-800">Gross Salary</td>
-                <td className="px-4 py-2 text-right text-emerald-800">{formatCurrency(gross)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div>
-          <div className="bg-red-500 text-white text-xs font-bold px-4 py-2 rounded-t-lg">DEDUCTIONS</div>
-          <table className="w-full text-xs border border-t-0 border-slate-200 rounded-b-lg overflow-hidden">
-            <tbody>
-              {deduction.map((d, i) => (
-                <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                  <td className="px-4 py-2 text-slate-600">{d.label}</td>
-                  <td className="px-4 py-2 text-right font-semibold text-red-600">{formatCurrency(d.value)}</td>
-                </tr>
-              ))}
-              <tr className="bg-red-50 font-bold border-t border-red-200">
-                <td className="px-4 py-2 text-red-800">Total Deductions</td>
-                <td className="px-4 py-2 text-right text-red-800">{formatCurrency(data.total_deductions)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* Income / Deductions */}
+      <table style={{ marginTop: '10px' }}>
+        <tbody>
+          <tr><td className="sec" colSpan={2}>Income</td><td className="sec" colSpan={2}>Deductions</td></tr>
+          <tr>
+            <td className="colhdr">Particulars</td><td className="colhdr">Amount</td>
+            <td className="colhdr">Particulars</td><td className="colhdr">Amount</td>
+          </tr>
+          {Array.from({ length: maxRows }).map((_, i) => (
+            <tr key={i}>
+              <td>{incomeRows[i] ? incomeRows[i][0] : ''}</td>
+              <td className="amt">{incomeRows[i] ? fmt(incomeRows[i][1]) : ''}</td>
+              <td>{dedRows[i] ? dedRows[i][0] : ''}</td>
+              <td className="amt">{dedRows[i] ? fmt(dedRows[i][1]) : ''}</td>
+            </tr>
+          ))}
+          <tr className="tot">
+            <td>Total</td><td className="amt">{fmt(incomeTotal)}</td>
+            <td>Total</td><td className="amt">{fmt(dedTotal)}</td>
+          </tr>
+          <tr className="net">
+            <td colSpan={3}>Net Salary</td>
+            <td className="amt">{fmt(net)}</td>
+          </tr>
+        </tbody>
+      </table>
 
-      {/* Net Pay */}
-      <div className="bg-primary-600 text-white rounded-xl p-4 flex justify-between items-center">
-        <div>
-          <p className="text-xs opacity-75 font-medium uppercase tracking-wider">Net Pay (Take Home)</p>
-          <p className="text-2xl font-black mt-0.5">{formatCurrency(net)}</p>
-        </div>
-        <div className="text-right text-xs opacity-75">
-          <p>In Words:</p>
-          <p className="font-semibold">{numberToWords(Math.round(net))} {currencyConfig?.code || 'INR'} Only</p>
-        </div>
-      </div>
-
-      <p className="text-center text-[10px] text-slate-400 mt-4">This is a computer-generated payslip and does not require a signature.</p>
+      <div className="words">Net Pay in words: {numberToWords(Math.round(net))} {currencyConfig?.code || 'INR'} Only</div>
+      <div className="foot">*This is system generated payslip and does not require signature</div>
     </div>
   );
 };
@@ -476,12 +510,14 @@ const Payroll = () => {
     const content = document.getElementById('salary-slip-print');
     if (!content) return;
     const w = window.open('', '_blank');
+    // Use outerHTML so the #salary-slip-print wrapper (and its scoped <style>) is
+    // included — that's what makes the slip print fully styled.
     w.document.write(`<html><head><title>Salary Slip</title>
-      <style>body{font-family:sans-serif;margin:0;padding:20px}table{width:100%;border-collapse:collapse}td{padding:6px 12px}
-      .bg-primary{background:#6d28d9;color:white}.bg-emerald{background:#059669;color:white}.bg-red{background:#ef4444;color:white}
-      </style></head><body>${content.innerHTML}</body></html>`);
+      <style>@page{margin:12mm;} body{margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}</style>
+      </head><body>${content.outerHTML}</body></html>`);
     w.document.close();
-    w.print();
+    w.focus();
+    setTimeout(() => { w.print(); }, 300);
   };
 
   // ── Edit Payroll Record ──────────────────────────────────────────────────
