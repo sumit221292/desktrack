@@ -1,5 +1,6 @@
 const { query } = require('../config/db');
 const { getCompanyHolidaySet } = require('../utils/holidays');
+const { dateInTz } = require('../services/attendanceService');
 
 // ── Salary Structures ────────────────────────────────────────────────────────
 
@@ -192,7 +193,7 @@ const calculateAttendanceDays = async (companyId, employeeId, month, year) => {
 
   const attResult = await query(
     `SELECT * FROM attendance WHERE employee_id = $1 AND company_id = $2
-     AND check_in::date >= $3::date AND check_in::date <= $4::date`,
+     AND (check_in AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::date BETWEEN $3::date AND $4::date`,
     [employeeId, companyId, startDate, endDate]
   );
 
@@ -200,7 +201,8 @@ const calculateAttendanceDays = async (companyId, employeeId, month, year) => {
   const attendedDateSet = new Set();
 
   for (const rec of attResult.rows) {
-    const dateStr = new Date(rec.check_in).toISOString().split('T')[0];
+    // Bucket attendance to its IST calendar day (matches how it's stored/displayed)
+    const dateStr = dateInTz(rec.check_in, 'Asia/Kolkata');
     attendedDateSet.add(dateStr);
 
     const status = (rec.status || '').toUpperCase();
