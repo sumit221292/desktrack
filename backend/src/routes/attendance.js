@@ -52,8 +52,8 @@ router.get('/:id/activity', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const result = await attendanceService.getDailyAttendance(
-      req.tenantId || 1, 
-      req.query.date || new Date().toISOString().split('T')[0]
+      req.tenantId || 1,
+      req.query.date || attendanceService.dateInTz()
     );
     res.json(result);
   } catch (err) {
@@ -65,8 +65,9 @@ router.get('/', async (req, res) => {
 router.get('/monthly', async (req, res) => {
   try {
     const { month, year } = req.query;
-    const m = parseInt(month) || (new Date().getMonth() + 1);
-    const y = parseInt(year) || new Date().getFullYear();
+    const [iy, im] = attendanceService.dateInTz().split('-').map(Number);
+    const m = parseInt(month) || im;
+    const y = parseInt(year) || iy;
     const result = await attendanceService.getMonthlyAttendance(req.tenantId || 1, m, y);
     res.json(result);
   } catch (err) {
@@ -79,7 +80,7 @@ router.get('/stats', async (req, res) => {
   try {
     const result = await attendanceService.getStats(
       req.tenantId || 1,
-      req.query.date || new Date().toISOString().split('T')[0]
+      req.query.date || attendanceService.dateInTz()
     );
     res.json(result);
   } catch (err) {

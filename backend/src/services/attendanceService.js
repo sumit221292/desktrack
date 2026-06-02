@@ -33,6 +33,14 @@ const getCompanyTimezone = async (companyId) => {
   return 'Asia/Kolkata';
 };
 
+// Calendar date (YYYY-MM-DD) of an instant in the given IANA timezone (default IST).
+// check_in/check_out/event_time are stored as the UTC instant in `timestamp without
+// time zone` columns (the backend runs in UTC), so `new Date(value)` is the correct
+// instant; this returns the day it falls on for the company's timezone — NOT the UTC
+// day. Using the UTC day mis-files anything between 00:00–05:30 IST onto the wrong date.
+const dateInTz = (instant = new Date(), tz = 'Asia/Kolkata') =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(instant));
+
 const getBreakConfig = async (companyId) => {
   try {
     const result = await query(
@@ -58,38 +66,51 @@ const getBreakConfig = async (companyId) => {
  */
 const closeMissedCheckouts = async (companyId) => {
   try {
-    const today = new Date().toISOString().split('T')[0];
+    const companyTz = await getCompanyTimezone(companyId);
+    const tzOffset = getTzOffset(companyTz);
+    const today = dateInTz(new Date(), companyTz); // current calendar day in company tz (IST)
     const shifts = await query('SELECT * FROM shifts WHERE company_id = $1', [companyId]);
     const defaultShift = shifts.rows[0] || { shift_end_time: '19:00:00', total_working_hours: 9 };
     const maxShiftMins = (parseFloat(defaultShift.total_working_hours) || 9) * 60;
-    const tzOffset = getTzOffset(await getCompanyTimezone(companyId));
 
-    // 1. Close ALL open sessions from before today
+    // 1. Resolve every session from a previous day. A session must stay within ONE
+    //    calendar day: if it was never checked out, OR it was checked out on a LATER
+    //    day (user forgot and checked out the next day), it is a MISSED checkout →
+    //    close at 23:59:59 of its own day with 0 work credit (never carry hours across
+    //    midnight). Same-day prior sessions are only capped to the shift length.
     const allSessions = await query('SELECT * FROM attendance_sessions WHERE company_id = $1', [companyId]);
     for (const sess of allSessions.rows) {
-      if (sess.check_out) {
-        // Cap existing sessions to max shift hours
+      const sessDay = dateInTz(sess.check_in, companyTz);
+      if (sessDay >= today) {
+        // Today's session: cap a closed one; leave an open one running.
+        if (sess.check_out) {
+          const dur = parseInt(sess.duration_minutes) || 0;
+          if (dur > maxShiftMins) {
+            await query('UPDATE attendance_sessions SET duration_minutes = $1 WHERE id = $2', [maxShiftMins, sess.id]);
+          }
+        }
+        continue;
+      }
+      const outDay = sess.check_out ? dateInTz(sess.check_out, companyTz) : null;
+      if (!sess.check_out || outDay > sessDay) {
+        // Missed checkout (never closed, or closed on a later day) → 0 work credit.
+        const closeTime = new Date(`${sessDay}T23:59:59${tzOffset}`);
+        await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = 0 WHERE id = $2',
+          [closeTime, sess.id]);
+        console.log(`[AutoClose] Session ${sess.id} from ${sessDay} — missed checkout, closed with 0 credit`);
+      } else {
         const dur = parseInt(sess.duration_minutes) || 0;
         if (dur > maxShiftMins) {
           await query('UPDATE attendance_sessions SET duration_minutes = $1 WHERE id = $2', [maxShiftMins, sess.id]);
         }
-        continue;
       }
-      const sessDate = String(sess.check_in).split('T')[0];
-      if (sessDate >= today) continue; // today's session, leave open
-
-      // Orphan session: close at 23:59:59 IST with 0 duration (no work credit)
-      const closeTime = new Date(`${sessDate}T23:59:59${tzOffset}`);
-      await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = 0 WHERE id = $2',
-        [closeTime, sess.id]);
-      console.log(`[AutoClose] Orphan session ${sess.id} from ${sessDate} — closed with 0 credit (missed checkout)`);
     }
 
     // 2. Close attendance records from before today that have no checkout
     const allAtt = await query('SELECT * FROM attendance WHERE company_id = $1', [companyId]);
     for (const rec of allAtt.rows) {
       if (rec.check_out) continue;
-      const attDate = String(rec.attendance_date || rec.check_in || '').split('T')[0];
+      const attDate = rec.check_in ? dateInTz(rec.check_in, companyTz) : null;
       if (!attDate || attDate >= today) continue;
 
       // Close at 23:59:59 IST of that day
@@ -138,8 +159,10 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
 
   const firstCheckIn = new Date(checkIn);
   const lastCheckOut = checkOut ? new Date(checkOut) : null;
-  const dateStr = firstCheckIn.toISOString().split('T')[0];
   const tzOffset = getTzOffset(shift.timezone || 'Asia/Kolkata');
+  // Anchor the day to the company's timezone (IST), not UTC, so shift-start / late /
+  // half-day comparisons and the stored attendance_date land on the right calendar day.
+  const dateStr = dateInTz(firstCheckIn, shift.timezone || 'Asia/Kolkata');
 
   const getShiftDate = (timeString) => {
     if (!timeString) return null;
@@ -426,27 +449,37 @@ const checkIn = async (userIdOrEmployeeId, companyId, location, manualCheckInTim
   shift.timezone = tz;
 
   const checkInTime = manualCheckInTime ? new Date(manualCheckInTime) : new Date();
-  const dateStr = checkInTime.toISOString().split('T')[0];
+  const dateStr = dateInTz(checkInTime, tz); // IST calendar day
 
-  // 3. Check for existing daily attendance record
+  // 3. Check for existing daily attendance record (match on the IST calendar day)
   const existingAtt = await query(
-    'SELECT * FROM attendance WHERE employee_id = $1 AND company_id = $2 AND check_in::date = $3::date',
-    [employeeId, companyId, dateStr]
+    `SELECT * FROM attendance WHERE employee_id = $1 AND company_id = $2
+       AND (check_in AT TIME ZONE 'UTC' AT TIME ZONE $4)::date = $3::date`,
+    [employeeId, companyId, dateStr, tz]
   );
 
   let attendanceId;
   let statusRecord;
 
-  // Auto-close any orphaned open sessions for this employee (from any day)
+  // Auto-close any orphaned open sessions for this employee. A leftover open session
+  // from a PREVIOUS day is a missed checkout → close at the end of that day with 0
+  // credit (never carry worked time across midnight). A same-day leftover is credited
+  // up to the check-in moment, capped to the shift length.
   const orphanSessions = await query(
     'SELECT id, check_in FROM attendance_sessions WHERE employee_id = $1 AND company_id = $2 AND check_out IS NULL',
     [employeeId, companyId]
   );
   if (orphanSessions.rows.length > 0) {
-    console.log(`[CheckIn] Closing ${orphanSessions.rows.length} orphaned sessions for employee ${employeeId}`);
+    const maxShiftMins = (parseFloat(shift.total_working_hours) || 9) * 60;
     for (const sess of orphanSessions.rows) {
-      const dur = Math.max(1, Math.ceil((new Date() - new Date(sess.check_in)) / 60000));
-      await query('UPDATE attendance_sessions SET check_out = NOW(), duration_minutes = $1 WHERE id = $2', [dur, sess.id]);
+      const sessDay = dateInTz(sess.check_in, tz);
+      if (sessDay < dateStr) {
+        const closeT = new Date(`${sessDay}T23:59:59${getTzOffset(tz)}`);
+        await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = 0 WHERE id = $2', [closeT, sess.id]);
+      } else {
+        const dur = Math.min(maxShiftMins, Math.max(1, Math.ceil((checkInTime - new Date(sess.check_in)) / 60000)));
+        await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = $2 WHERE id = $3', [checkInTime, dur, sess.id]);
+      }
     }
   }
 
@@ -560,13 +593,20 @@ const checkOut = async (attendanceId, companyId, manualCheckOutTime) => {
     return { ...record, message: 'Already checked out' };
   }
 
-  // Close every open session
+  // Close every open session. A session opened on a PREVIOUS day is a missed checkout
+  // — close it at the end of its own day with 0 credit instead of crediting hours
+  // across midnight to the wrong day. Same-day sessions are credited (capped to shift).
+  const coDay = dateInTz(checkOutTime, shift.timezone);
+  const coMaxShiftMins = (parseFloat(shift.total_working_hours) || 9) * 60;
   for (const session of openSessions.rows) {
-    const durationMinutes = Math.max(1, Math.ceil((checkOutTime - new Date(session.check_in)) / 60000));
-    await query(
-      'UPDATE attendance_sessions SET check_out = $1, duration_minutes = $2 WHERE id = $3',
-      [checkOutTime, durationMinutes, session.id]
-    );
+    const sessDay = dateInTz(session.check_in, shift.timezone);
+    if (sessDay < coDay) {
+      const closeT = new Date(`${sessDay}T23:59:59${getTzOffset(shift.timezone)}`);
+      await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = 0 WHERE id = $2', [closeT, session.id]);
+    } else {
+      const durationMinutes = Math.min(coMaxShiftMins, Math.max(1, Math.ceil((checkOutTime - new Date(session.check_in)) / 60000)));
+      await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = $2 WHERE id = $3', [checkOutTime, durationMinutes, session.id]);
+    }
   }
 
   // Auto-end any active breaks (LUNCH/TEA started but not ended)
@@ -771,33 +811,33 @@ const getDailyAttendance = async (companyId, dateStr) => {
   // Auto-close missed checkouts from previous days
   await closeMissedCheckouts(companyId);
 
+  const tz = await getCompanyTimezone(companyId);
   const employees = await query('SELECT * FROM employees WHERE company_id = $1', [companyId]);
-  
-  // Get attendance for the specific date
+
+  // Timestamps are stored as the UTC instant; match rows whose IST calendar day equals
+  // the requested date (so a 00:00–05:30 IST check-in isn't filed onto the previous day).
   const attendance = await query(
-    `SELECT * FROM attendance 
-     WHERE company_id = $1 AND check_in::date = $2::date`, 
-    [companyId, dateStr]
+    `SELECT * FROM attendance
+     WHERE company_id = $1 AND (check_in AT TIME ZONE 'UTC' AT TIME ZONE $3)::date = $2::date`,
+    [companyId, dateStr, tz]
   );
-  
-  // Get all events for the day
+
   const events = await query(
-    `SELECT * FROM attendance_events 
-     WHERE company_id = $1 AND event_time::date = $2::date`,
-    [companyId, dateStr]
+    `SELECT * FROM attendance_events
+     WHERE company_id = $1 AND (event_time AT TIME ZONE 'UTC' AT TIME ZONE $3)::date = $2::date`,
+    [companyId, dateStr, tz]
   );
-  
-  // Get all sessions for the day
+
   const sessions = await query(
-    `SELECT * FROM attendance_sessions 
-     WHERE company_id = $1 AND check_in::date = $2::date`,
-    [companyId, dateStr]
+    `SELECT * FROM attendance_sessions
+     WHERE company_id = $1 AND (check_in AT TIME ZONE 'UTC' AT TIME ZONE $3)::date = $2::date`,
+    [companyId, dateStr, tz]
   );
   
   const shifts = await query('SELECT * FROM shifts WHERE company_id = $1', [companyId]);
   const shift = shifts.rows[0];
 
-  const companyTz = await getCompanyTimezone(companyId);
+  const companyTz = tz;
   const brkCfg = await getBreakConfig(companyId);
 
   // Weekend / company-holiday → non-working status for employees with no record
@@ -947,6 +987,7 @@ const getStats = async (companyId, dateStr) => {
  * Returns { employees: [...], days: [...dates], records: { empId: { date: {status, ...} } } }
  */
 const getMonthlyAttendance = async (companyId, month, year) => {
+  const tz = await getCompanyTimezone(companyId);
   const employees = await query('SELECT * FROM employees WHERE company_id = $1', [companyId]);
 
   // Build date range for the month
@@ -954,16 +995,17 @@ const getMonthlyAttendance = async (companyId, month, year) => {
   const lastDay = new Date(year, month, 0).getDate();
   const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-  // Get all attendance records for the month
+  // Get all attendance records for the month, matched on the IST calendar day.
   const attendance = await query(
-    `SELECT * FROM attendance WHERE company_id = $1 AND check_in::date >= $2::date AND check_in::date <= $3::date`,
-    [companyId, startDate, endDate]
+    `SELECT * FROM attendance WHERE company_id = $1
+       AND (check_in AT TIME ZONE 'UTC' AT TIME ZONE $4)::date BETWEEN $2::date AND $3::date`,
+    [companyId, startDate, endDate, tz]
   );
 
   // Get shift info
   const shifts = await query('SELECT * FROM shifts WHERE company_id = $1', [companyId]);
   const shift = shifts.rows[0];
-  const companyTz = await getCompanyTimezone(companyId);
+  const companyTz = tz;
   const brkCfg = await getBreakConfig(companyId);
 
   // Company holidays (paid non-working days, like weekends)
@@ -999,13 +1041,13 @@ const getMonthlyAttendance = async (companyId, month, year) => {
 
   // Build per-employee, per-date records
   const records = {};
-  const today = new Date().toISOString().split('T')[0];
+  const today = dateInTz(new Date(), companyTz);
 
   for (const emp of employees.rows) {
     records[emp.id] = {};
     for (const dateStr of days) {
       const att = attendance.rows.find(a => {
-        const attDate = new Date(a.check_in).toISOString().split('T')[0];
+        const attDate = dateInTz(a.check_in, companyTz);
         return a.employee_id == emp.id && attDate === dateStr;
       });
 
@@ -1125,5 +1167,6 @@ module.exports = {
   updateAttendance,
   logEvent,
   getStats,
-  getMonthlyAttendance
+  getMonthlyAttendance,
+  dateInTz
 };
