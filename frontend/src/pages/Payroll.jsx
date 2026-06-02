@@ -250,12 +250,13 @@ const Payroll = () => {
   const [submitting,     setSubmitting]     = useState(false);
   const DEFAULT_SLABS = {
     new: [
-      { from: 0,       to: 300000,  rate: 0 },
-      { from: 300001,  to: 700000,  rate: 5 },
-      { from: 700001,  to: 1000000, rate: 10 },
-      { from: 1000001, to: 1200000, rate: 15 },
-      { from: 1200001, to: 1500000, rate: 20 },
-      { from: 1500001, to: null,    rate: 30 },
+      { from: 0,       to: 400000,  rate: 0 },
+      { from: 400001,  to: 800000,  rate: 5 },
+      { from: 800001,  to: 1200000, rate: 10 },
+      { from: 1200001, to: 1600000, rate: 15 },
+      { from: 1600001, to: 2000000, rate: 20 },
+      { from: 2000001, to: 2400000, rate: 25 },
+      { from: 2400001, to: null,    rate: 30 },
     ],
     old: [
       { from: 0,       to: 250000,  rate: 0 },
@@ -1072,8 +1073,14 @@ const Payroll = () => {
           return tax;
         };
         const taxSlab    = calcTaxFromSlabs(taxableIncome, taxDecl.slabs[taxDecl.regime]);
-        const cess       = Math.round(taxSlab * ((+taxDecl.cessRate||0) / 100));
-        const totalTax   = taxSlab + cess;
+        // Section 87A rebate — New regime: nil tax up to ₹12L taxable (cap ₹60k);
+        // Old regime: nil up to ₹5L taxable (cap ₹12,500).
+        const rebateLimit = taxDecl.regime === 'new' ? 1200000 : 500000;
+        const rebateCap   = taxDecl.regime === 'new' ? 60000 : 12500;
+        const rebate87A  = taxableIncome <= rebateLimit ? Math.min(taxSlab, rebateCap) : 0;
+        const taxAfterRebate = Math.max(0, taxSlab - rebate87A);
+        const cess       = Math.round(taxAfterRebate * ((+taxDecl.cessRate||0) / 100));
+        const totalTax   = taxAfterRebate + cess;
         const monthlyTDS = Math.round(totalTax / 12);
 
         const updateSlab = (regime, idx, field, val) => {
@@ -1219,11 +1226,25 @@ const Payroll = () => {
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          {slabs.map((s,i) => (
-                            <p key={i} className="text-sm text-slate-600 font-mono">
-                              • {s.to ? `${fmtL(s.from)}–${fmtL(s.to)}` : `${fmtL(s.from)}+`}: <strong>{s.rate === 0 ? 'Nil' : `${s.rate}%`}</strong>
-                            </p>
-                          ))}
+                          {(() => {
+                            let base = 0, lower = 0;
+                            const fmtR = v => `₹${Math.round(v).toLocaleString('en-IN')}`;
+                            return slabs.map((s, i) => {
+                              const threshold = lower;
+                              const slabText = i === 0
+                                ? `Up to ${fmtR(s.to ?? 0)}`
+                                : (s.to == null ? `Above ${fmtR(threshold)}` : `${fmtR(s.from)} – ${fmtR(s.to)}`);
+                              const rateText = s.rate === 0 ? 'Nil'
+                                : base === 0 ? `${s.rate}% above ${fmtR(threshold)}`
+                                : `${fmtR(base)} + ${s.rate}% above ${fmtR(threshold)}`;
+                              if (s.to != null) { base += Math.round((s.to - lower) * s.rate / 100); lower = s.to; }
+                              return (
+                                <p key={i} className="text-sm text-slate-600 font-mono">
+                                  • {slabText}: <strong>{rateText}</strong>
+                                </p>
+                              );
+                            });
+                          })()}
                         </div>
                       )}
                       {!editingSlabs && taxDecl.regime === regKey && (
@@ -1289,7 +1310,8 @@ const Payroll = () => {
                       ['Annual Gross Salary',   formatCurrency(annualGross),     'text-slate-900'],
                       ['Total Deductions',      `- ${formatCurrency(totalDed)}`, 'text-red-600'],
                       ['Net Taxable Income',    formatCurrency(taxableIncome),   'text-slate-900 font-bold'],
-                      ['Tax on Income',         formatCurrency(taxSlab),         'text-orange-600'],
+                      ['Tax on Income (before rebate)', formatCurrency(taxSlab), 'text-orange-600'],
+                      ...(rebate87A > 0 ? [[`Rebate u/s 87A`, `- ${formatCurrency(rebate87A)}`, 'text-emerald-600']] : []),
                       ['Health & Education Cess (4%)', formatCurrency(cess),    'text-orange-500'],
                       ['Total Tax Payable',     formatCurrency(totalTax),        'text-red-700 font-black text-base'],
                       ['Monthly TDS',           formatCurrency(monthlyTDS),      'text-primary-700 font-black text-base'],
