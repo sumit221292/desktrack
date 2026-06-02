@@ -1611,6 +1611,19 @@ async function runMigrations() {
         await pool.query('ALTER TABLE salary_structures ADD COLUMN IF NOT EXISTS deductions_json JSONB');
       } catch (e) { /* already exists */ }
 
+      // salary_structures — enforce ONE structure per employee (dedupe + unique constraint)
+      try {
+        // Remove any accidental duplicates, keeping the newest (highest id) per employee
+        await pool.query(`DELETE FROM salary_structures a USING salary_structures b
+          WHERE a.employee_id = b.employee_id AND a.company_id = b.company_id AND a.id < b.id`);
+        await pool.query(`DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'salary_structures_emp_company_uniq') THEN
+            ALTER TABLE salary_structures ADD CONSTRAINT salary_structures_emp_company_uniq UNIQUE (employee_id, company_id);
+          END IF;
+        END $$;`);
+        console.log('--- DB: salary_structures one-per-employee constraint ensured ---');
+      } catch (e) { console.error('salary_structures uniq migration:', e.message); }
+
       // payroll_records — add deductions_json for payroll custom data
       try {
         await pool.query('ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS deductions_json JSONB');

@@ -51,8 +51,9 @@ const upsertSalaryStructure = async (req, res) => {
       [employeeId, companyId]
     );
 
-    let result;
-    if (existing.rows.length > 0) {
+    const isUpdate = existing.rows.length > 0;
+    // Archive the current values to history before overwriting them
+    if (isUpdate) {
       const old = existing.rows[0];
       await query(
         `INSERT INTO salary_structure_history (original_id, employee_id, company_id, basic_pay, hra, da, conveyance, medical, special_allowance, effective_from, effective_to)
@@ -61,22 +62,23 @@ const upsertSalaryStructure = async (req, res) => {
          old.conveyance, old.medical, old.special_allowance, old.effective_from,
          effective_from || new Date().toISOString().split('T')[0]]
       );
-      result = await query(
-        `UPDATE salary_structures SET
-          basic_pay = $1, hra = $2, da = $3, conveyance = $4, medical = $5,
-          special_allowance = $6, effective_from = $7, deductions_json = $8
-         WHERE employee_id = $9 AND company_id = $10 RETURNING *`,
-        [basic_pay, hra, da, conveyance, medical, special_allowance, effective_from, deductionsJson, employeeId, companyId]
-      );
-      res.json(result.rows[0]);
-    } else {
-      result = await query(
-        `INSERT INTO salary_structures (employee_id, company_id, basic_pay, hra, da, conveyance, medical, special_allowance, effective_from, deductions_json)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-        [employeeId, companyId, basic_pay, hra, da, conveyance, medical, special_allowance, effective_from, deductionsJson]
-      );
-      res.status(201).json(result.rows[0]);
     }
+
+    // Atomic upsert — the UNIQUE(employee_id, company_id) constraint guarantees
+    // exactly ONE structure per employee, so an edit always UPDATEs (never duplicates),
+    // even on a missed existence check or concurrent double-submit.
+    const result = await query(
+      `INSERT INTO salary_structures (employee_id, company_id, basic_pay, hra, da, conveyance, medical, special_allowance, effective_from, deductions_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT (employee_id, company_id) DO UPDATE SET
+         basic_pay = EXCLUDED.basic_pay, hra = EXCLUDED.hra, da = EXCLUDED.da,
+         conveyance = EXCLUDED.conveyance, medical = EXCLUDED.medical,
+         special_allowance = EXCLUDED.special_allowance, effective_from = EXCLUDED.effective_from,
+         deductions_json = EXCLUDED.deductions_json
+       RETURNING *`,
+      [employeeId, companyId, basic_pay, hra, da, conveyance, medical, special_allowance, effective_from, deductionsJson]
+    );
+    res.status(isUpdate ? 200 : 201).json(result.rows[0]);
   } catch (err) {
     console.error('Upsert Salary Structure Error:', err);
     res.status(500).json({ error: 'Server error saving salary structure.' });
