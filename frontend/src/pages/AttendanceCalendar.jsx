@@ -181,8 +181,13 @@ const AttendanceCalendar = () => {
           }
         }
         setData(resData);
+        // Default to a SINGLE employee so the calendar opens in the detailed
+        // individual view (own record for EMPLOYEE; first employee for admins).
+        const def = (isEmployee && user?.email)
+          ? resData.employees.find(e => e.email === user.email)
+          : resData.employees[0];
         const vis = {};
-        resData.employees.forEach(e => { vis[e.id] = true; });
+        resData.employees.forEach(e => { vis[e.id] = def ? e.id === def.id : true; });
         setVisibleEmps(vis);
       } catch (err) {
         console.error('Failed to fetch monthly attendance:', err);
@@ -203,6 +208,8 @@ const AttendanceCalendar = () => {
   const goToday = () => { setMonth(now.getMonth() + 1); setYear(now.getFullYear()); setSelectedDate(null); };
 
   const toggleEmp = (id) => setVisibleEmps(v => ({ ...v, [id]: !v[id] }));
+  // Click an employee's name → view ONLY them (detailed individual view)
+  const selectOnly = (id) => { const next = {}; (data?.employees || []).forEach(e => { next[e.id] = e.id === id; }); setVisibleEmps(next); };
   const allVisible = data ? data.employees.every(e => visibleEmps[e.id]) : false;
   const toggleAll = () => {
     if (!data) return;
@@ -291,14 +298,17 @@ const AttendanceCalendar = () => {
           </div>
           <div className="px-3 pb-3 space-y-0.5">
             {(data?.employees || []).filter(e => !empSearch || e.name.toLowerCase().includes(empSearch.toLowerCase())).map(emp => (
-              <label key={emp.id} className="flex items-center gap-2.5 px-2 py-1.5 cursor-pointer hover:bg-slate-50 rounded-md">
+              <div key={emp.id} className="flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-slate-50">
                 <input type="checkbox" checked={!!visibleEmps[emp.id]} onChange={() => toggleEmp(emp.id)}
-                  className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
-                <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-700 shrink-0">
-                  {emp.name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase()}
+                  className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 shrink-0" />
+                <div onClick={() => selectOnly(emp.id)} title="View only this employee"
+                  className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer">
+                  <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-700 shrink-0">
+                    {emp.name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase()}
+                  </div>
+                  <span className="text-xs font-medium text-slate-700 truncate">{emp.name}</span>
                 </div>
-                <span className="text-xs font-medium text-slate-700 truncate">{emp.name}</span>
-              </label>
+              </div>
             ))}
           </div>
         </div>
