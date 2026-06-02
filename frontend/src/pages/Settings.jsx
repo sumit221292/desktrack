@@ -61,6 +61,7 @@ const Settings = () => {
   const [selectedHolidays, setSelectedHolidays] = useState([]); // [{date, name}]
   const [holidayLoading, setHolidayLoading] = useState(false);
   const [holidaySaved, setHolidaySaved] = useState(false);
+  const [customHol, setCustomHol] = useState({ date: '', name: '' });
   const MAX_HOLIDAYS = 10;
 
   // Load the company's saved holidays
@@ -101,6 +102,20 @@ const Settings = () => {
     } catch (err) {
       alert('Failed to save holidays.');
     }
+  };
+
+  const addCustomHoliday = () => {
+    if (!customHol.date || !customHol.name.trim()) { alert('Enter both a date and a name.'); return; }
+    if (selectedHolidays.find(x => x.date === customHol.date)) { alert('A holiday on that date is already selected.'); return; }
+    if (selectedHolidays.length >= MAX_HOLIDAYS) { alert(`You can select up to ${MAX_HOLIDAYS} holidays.`); return; }
+    setHolidaySaved(false);
+    setSelectedHolidays(prev => [...prev, { date: customHol.date, name: customHol.name.trim() }]);
+    setCustomHol({ date: '', name: '' });
+  };
+
+  const removeSelectedHoliday = (date) => {
+    setHolidaySaved(false);
+    setSelectedHolidays(prev => prev.filter(x => x.date !== date));
   };
 
   // Fetch roles from DB + employee counts
@@ -1020,6 +1035,33 @@ const Settings = () => {
                   className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
                   {holidaySaved ? '✓ Saved' : 'Save Holidays'}
                 </button>
+              </div>
+
+              {/* Currently selected */}
+              {selectedHolidays.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {[...selectedHolidays].sort((a, b) => a.date.localeCompare(b.date)).map(h => (
+                    <span key={h.date} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-primary-100 text-primary-700">
+                      {h.name} <span className="text-primary-400">({new Date(h.date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })})</span>
+                      <button onClick={() => removeSelectedHoliday(h.date)} className="text-primary-400 hover:text-red-500 font-bold ml-0.5">×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Add a custom holiday (exact date control) */}
+              <div className="flex flex-wrap items-end gap-2 mb-5 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500 block mb-1">Date</label>
+                  <input type="date" value={customHol.date} onChange={e => setCustomHol(p => ({ ...p, date: e.target.value }))}
+                    className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white" style={{ colorScheme: 'light' }} />
+                </div>
+                <div className="flex-1 min-w-[160px]">
+                  <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500 block mb-1">Holiday name</label>
+                  <input type="text" value={customHol.name} onChange={e => setCustomHol(p => ({ ...p, name: e.target.value }))}
+                    placeholder="e.g. Founder's Day" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white" />
+                </div>
+                <button onClick={addCustomHoliday} className="px-4 py-2 rounded-lg text-sm font-bold bg-slate-800 text-white hover:bg-slate-900 transition-colors">+ Add</button>
               </div>
 
               {availableHolidays.length === 0 ? (
