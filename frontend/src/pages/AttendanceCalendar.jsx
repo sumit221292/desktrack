@@ -44,6 +44,116 @@ const MiniCalendar = ({ month, year, today, onDayClick, selectedDate }) => {
   );
 };
 
+// Detailed single-employee view: summary panel + per-day status grid with times.
+const IndividualCalendar = ({ emp, records, specialEvents, weeks, month, year, todayStr }) => {
+  const recs = records[emp.id] || {};
+  const fmtTime = (iso) => { try { return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }); } catch { return ''; } };
+
+  // Tally the month's per-day records
+  const c = { present: 0, late: 0, absent: 0, halfday: 0, leave: 0, holiday: 0, weekoff: 0, lop: 0 };
+  let workingDays = 0, elapsedWorking = 0;
+  const dim = new Date(year, month, 0).getDate();
+  for (let d = 1; d <= dim; d++) {
+    const ds = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const s = (recs[ds]?.status || '-').toUpperCase();
+    if (s === 'WEEKEND') { c.weekoff++; continue; }
+    if (s === 'OFFICE HOLIDAY' || s === 'PUBLIC HOLIDAY') { c.holiday++; continue; }
+    workingDays++;
+    if (ds <= todayStr) elapsedWorking++;
+    if (s === 'PRESENT' || s === 'ON TIME' || s === 'COMPLETE') c.present++;
+    else if (s === 'LATE' || s === 'LATE_ARRIVAL' || s === 'OVER LATE' || s === 'OVERLATE') c.late++;
+    else if (s === 'HALF DAY' || s === 'HALFDAY') c.halfday++;
+    else if (s === 'LEAVE') c.leave++;
+    else if (s === 'LOP') c.lop++;
+    else if (s === 'ABSENT') c.absent++;
+  }
+  const attended = c.present + c.late + c.halfday;
+  const payable = c.present + c.late + 0.5 * c.halfday + c.leave;
+  const pct = elapsedWorking > 0 ? Math.round(attended / elapsedWorking * 100) : 0;
+  const cards = [
+    ['Present', c.present, 'PRESENT'], ['Late', c.late, 'LATE'], ['Absent', c.absent, 'ABSENT'],
+    ['Half Day', c.halfday, 'HALF DAY'], ['Leave', c.leave, 'LEAVE'], ['Holiday', c.holiday, 'OFFICE HOLIDAY'],
+    ['Week-Off', c.weekoff, 'WEEKEND'], ['LOP', c.lop, 'LOP'],
+  ];
+
+  return (
+    <div className="flex-1 overflow-y-auto p-5 space-y-4">
+      <div>
+        <h2 className="text-lg font-bold text-slate-900">{emp.name} — Attendance Summary</h2>
+        <p className="text-xs text-slate-500">{MONTH_NAMES[month - 1]} {year}</p>
+      </div>
+
+      {/* Status count cards */}
+      <div className="grid grid-cols-4 lg:grid-cols-8 gap-2.5">
+        {cards.map(([label, val, key]) => { const cfg = getStatusConfig(key); return (
+          <div key={label} className="rounded-xl border p-3 text-center" style={{ borderColor: cfg.border, background: cfg.bg }}>
+            <p className="text-2xl font-black" style={{ color: cfg.color }}>{val}</p>
+            <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: cfg.color }}>{label}</p>
+          </div>
+        ); })}
+      </div>
+
+      {/* Derived metrics */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="rounded-xl border border-slate-200 p-4">
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Attendance</p>
+          <p className="text-2xl font-black text-emerald-600">{pct}%</p>
+          <p className="text-[10px] text-slate-400">{workingDays} working days · {attended} present</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 p-4">
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Approved Leave</p>
+          <p className="text-2xl font-black text-blue-600">{c.leave + c.lop}<span className="text-sm font-medium text-slate-400"> days</span></p>
+        </div>
+        <div className="rounded-xl border border-slate-200 p-4">
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">LOP</p>
+          <p className="text-2xl font-black text-slate-800">{c.lop}<span className="text-sm font-medium text-slate-400"> days</span></p>
+        </div>
+        <div className="rounded-xl border border-slate-200 p-4">
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Payable Days</p>
+          <p className="text-2xl font-black text-emerald-600">{payable}</p>
+        </div>
+      </div>
+
+      {/* Month grid (per-day status) */}
+      <table className="w-full border-collapse table-fixed">
+        <thead><tr>{DAY_HEADERS.map((d, i) => <th key={d} className={`text-[11px] font-medium py-2 border-b border-slate-200 text-center ${i === 0 || i === 6 ? 'text-slate-400' : 'text-slate-500'}`}>{d}</th>)}</tr></thead>
+        <tbody>
+          {weeks.map((week, wi) => (
+            <tr key={wi}>
+              {week.map((day, di) => {
+                if (day === null) return <td key={`e-${di}`} className="border border-slate-100 bg-slate-50/50 h-24" />;
+                const ds = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const r = recs[ds] || { status: '-' };
+                const s = (r.status || '-').toUpperCase();
+                const cfg = getStatusConfig(s);
+                const isWeekend = di === 0 || di === 6;
+                const isToday = ds === todayStr;
+                const isAttend = ['PRESENT', 'ON TIME', 'COMPLETE', 'LATE', 'OVER LATE', 'OVERLATE', 'HALF DAY', 'HALFDAY'].includes(s);
+                const sub = isAttend ? (r.check_in ? fmtTime(r.check_in) : '—')
+                  : s === 'LEAVE' ? (r.leaveCode || 'Leave')
+                  : s === 'OFFICE HOLIDAY' ? ((specialEvents[ds] || []).find(e => e.type === 'holiday')?.name || '') : null;
+                return (
+                  <td key={day} className={`border border-slate-100 align-top p-1.5 h-24 ${isWeekend ? 'bg-slate-50/60' : 'bg-white'}`}>
+                    <div className="flex justify-end mb-1">
+                      <span className={`text-xs font-semibold ${isToday ? 'w-5 h-5 flex items-center justify-center bg-blue-600 text-white rounded-full' : 'text-slate-500'}`}>{day}</span>
+                    </div>
+                    {s !== '-' && (
+                      <div className="rounded-md px-1 py-1 text-center" style={{ background: cfg.bg, border: `1px solid ${cfg.border}` }}>
+                        <p className="text-[11px] font-bold leading-tight truncate" style={{ color: cfg.color }}>{cfg.label}</p>
+                        {sub && <p className="text-[9px] mt-0.5 truncate" style={{ color: cfg.color }}>{sub}</p>}
+                      </div>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 const AttendanceCalendar = () => {
   const { user } = useAuth();
   const now = new Date();
@@ -128,6 +238,9 @@ const AttendanceCalendar = () => {
     return true;
   }) : [];
 
+  // Exactly one employee selected → detailed individual view; else team matrix.
+  const individual = filteredEmps.length === 1 ? filteredEmps[0] : null;
+
   // Day click handler - show all employees' attendance for that day
   const handleDayClick = (dateStr) => {
     setSelectedDate(dateStr);
@@ -194,7 +307,7 @@ const AttendanceCalendar = () => {
         <div className="p-4 border-t border-slate-100">
           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Legend</p>
           <div className="grid grid-cols-2 gap-1">
-            {['PRESENT','LATE','OVER LATE','HALF DAY','ABSENT','WEEKEND','OFFICE HOLIDAY'].map(key => {
+            {['PRESENT','LATE','OVER LATE','HALF DAY','ABSENT','LEAVE','LOP','WEEKEND','OFFICE HOLIDAY'].map(key => {
               const val = getStatusConfig(key);
               return (
                 <div key={key} className="flex items-center gap-1.5">
@@ -233,6 +346,8 @@ const AttendanceCalendar = () => {
           <div className="flex-1 flex items-center justify-center">
             <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" />
           </div>
+        ) : individual ? (
+          <IndividualCalendar emp={individual} records={data.records} specialEvents={data.specialEvents || {}} weeks={weeks} month={month} year={year} todayStr={todayStr} />
         ) : (
           <div className="flex-1 overflow-y-auto">
             <table className="w-full border-collapse table-fixed">

@@ -971,6 +971,26 @@ const getMonthlyAttendance = async (companyId, month, year) => {
   const holidayMap = {};
   holidayList.forEach(h => { holidayMap[h.date] = h.name; });
 
+  // Approved leaves → per-employee, per-date map (paid = leave_type quota > 0, else LOP)
+  const leaveRes = await query(
+    `SELECT lr.employee_id, lr.start_date, lr.end_date, lt.code, lt.annual_quota
+     FROM leave_requests lr JOIN leave_types lt ON lr.leave_type_id = lt.id
+     WHERE lr.company_id = $1 AND lr.status = 'APPROVED'
+       AND lr.start_date <= $3::date AND lr.end_date >= $2::date`,
+    [companyId, startDate, endDate]
+  ).catch(() => ({ rows: [] }));
+  const leaveMap = {}; // { empId: { 'YYYY-MM-DD': { paid, code } } }
+  for (const lv of leaveRes.rows) {
+    const s = new Date(Math.max(new Date(lv.start_date), new Date(startDate)));
+    const e = new Date(Math.min(new Date(lv.end_date), new Date(endDate)));
+    const paid = (parseInt(lv.annual_quota) || 0) > 0;
+    for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+      const ds = d.toISOString().split('T')[0];
+      if (!leaveMap[lv.employee_id]) leaveMap[lv.employee_id] = {};
+      leaveMap[lv.employee_id][ds] = { paid, code: lv.code };
+    }
+  }
+
   // Build days array
   const days = [];
   for (let d = 1; d <= lastDay; d++) {
@@ -990,14 +1010,18 @@ const getMonthlyAttendance = async (companyId, month, year) => {
       });
 
       if (!att) {
-        // Future dates: no status; past dates: absent
-        if (dateStr > today) {
-          records[emp.id][dateStr] = { status: '-' };
+        const dow = new Date(dateStr + 'T00:00:00').getDay();
+        const lv = leaveMap[emp.id]?.[dateStr];
+        if (dow === 0 || dow === 6) {
+          records[emp.id][dateStr] = { status: 'WEEKEND' };          // week-off (any date)
+        } else if (holidayMap[dateStr] !== undefined) {
+          records[emp.id][dateStr] = { status: 'OFFICE HOLIDAY' };   // company holiday
+        } else if (lv) {
+          records[emp.id][dateStr] = { status: lv.paid ? 'LEAVE' : 'LOP', leaveCode: lv.code };
+        } else if (dateStr > today) {
+          records[emp.id][dateStr] = { status: '-' };                 // future working day
         } else {
-          // Weekend (Sat/Sun) and company holidays are non-working — not Absent
-          const dow = new Date(dateStr + 'T00:00:00').getDay();
-          const status = (dow === 0 || dow === 6) ? 'WEEKEND' : (holidayMap[dateStr] !== undefined ? 'OFFICE HOLIDAY' : 'ABSENT');
-          records[emp.id][dateStr] = { status };
+          records[emp.id][dateStr] = { status: 'ABSENT' };
         }
         continue;
       }
