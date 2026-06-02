@@ -14,10 +14,10 @@ export const STATUS_CONFIG = {
   'HALF DAY':       { color: '#9333ea', bg: '#f3e8ff', border: '#e9d5ff', label: 'Half Day',      short: 'HD', tw: 'bg-purple-50 text-purple-700 border-purple-200' },
   'HALFDAY':        { color: '#9333ea', bg: '#f3e8ff', border: '#e9d5ff', label: 'Half Day',      short: 'HD', tw: 'bg-purple-50 text-purple-700 border-purple-200' },
   'ABSENT':         { color: '#dc2626', bg: '#fee2e2', border: '#fecaca', label: 'Absent',        short: 'A',  tw: 'bg-red-50 text-red-700 border-red-200' },
-  'WEEKEND':        { color: '#94a3b8', bg: '#f1f5f9', border: '#e2e8f0', label: 'Weekend',       short: 'W',  tw: 'bg-slate-50 text-slate-400 border-slate-200' },
+  'WEEKEND':        { color: '#94a3b8', bg: '#f1f5f9', border: '#e2e8f0', label: 'Week-off',      short: 'WO', tw: 'bg-slate-50 text-slate-400 border-slate-200' },
   'INCOMPLETE':     { color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe', label: 'Active',        short: 'AC', tw: 'bg-blue-50 text-blue-700 border-blue-200' },
   'LEAVE':          { color: '#64748b', bg: '#f1f5f9', border: '#e2e8f0', label: 'Leave',         short: 'L',  tw: 'bg-slate-100 text-slate-600 border-slate-300' },
-  'OFFICE HOLIDAY': { color: '#d97706', bg: '#fef3c7', border: '#fde68a', label: 'Office Holiday', short: 'OH', tw: 'bg-amber-50 text-amber-700 border-amber-200' },
+  'OFFICE HOLIDAY': { color: '#d97706', bg: '#fef3c7', border: '#fde68a', label: 'Holiday',        short: 'H',  tw: 'bg-amber-50 text-amber-700 border-amber-200' },
   'PUBLIC HOLIDAY': { color: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'Public Holiday', short: 'H',  tw: 'bg-amber-50 text-amber-600 border-amber-200' },
   // Live presence statuses (Recent Activity — current state right now)
   'CHECKED IN':     { color: '#16a34a', bg: '#dcfce7', border: '#bbf7d0', label: 'Checked In',     short: 'IN', tw: 'bg-emerald-50 text-emerald-700 border-emerald-200' },

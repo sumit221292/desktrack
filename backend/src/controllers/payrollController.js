@@ -1,4 +1,5 @@
 const { query } = require('../config/db');
+const { getCompanyHolidaySet } = require('../utils/holidays');
 
 // ── Salary Structures ────────────────────────────────────────────────────────
 
@@ -172,12 +173,17 @@ const getPayrollHistory = async (req, res) => {
 const calculateAttendanceDays = async (companyId, employeeId, month, year) => {
   const m = parseInt(month), y = parseInt(year);
   const daysInMonth = new Date(y, m, 0).getDate();
+  const dateOf = (d) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
-  // Total working days = calendar days - weekends
+  // Company holidays are paid non-working days — excluded from working days (and
+  // never counted as absent), exactly like weekends.
+  const holidaySet = await getCompanyHolidaySet(companyId);
+
+  // Total working days = calendar days − weekends − company holidays
   let totalWorkingDays = 0;
   for (let d = 1; d <= daysInMonth; d++) {
     const dow = new Date(y, m - 1, d).getDay();
-    if (dow !== 0 && dow !== 6) totalWorkingDays++;
+    if (dow !== 0 && dow !== 6 && !holidaySet.has(dateOf(d))) totalWorkingDays++;
   }
 
   // Fetch attendance records for this employee in this month
@@ -208,11 +214,12 @@ const calculateAttendanceDays = async (companyId, employeeId, month, year) => {
     else absentDays += 1;
   }
 
-  // Count working days without attendance as absent
+  // Count working days without attendance as absent (skip weekends + holidays)
   for (let d = 1; d <= daysInMonth; d++) {
     const dow = new Date(y, m - 1, d).getDay();
     if (dow === 0 || dow === 6) continue;
-    const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const dateStr = dateOf(d);
+    if (holidaySet.has(dateStr)) continue;
     if (!attendedDateSet.has(dateStr)) {
       // Check if it's a future date
       if (new Date(dateStr) <= new Date()) absentDays += 1;

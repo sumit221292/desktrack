@@ -2,6 +2,20 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../config/db');
 const { authMiddleware, checkRole } = require('../middleware/auth');
+const { fetchYearHolidays } = require('../utils/holidays');
+
+// GET all public holidays for a year (India) — admin picks up to 10 of these as
+// the company's holidays (saved via PUT /config under the `holidays` key).
+router.get('/holidays/available', authMiddleware, async (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const holidays = await fetchYearHolidays(year);
+    res.json({ year, holidays });
+  } catch (err) {
+    console.error('Get Holidays Error:', err);
+    res.status(500).json({ error: 'Server error fetching holidays.' });
+  }
+});
 
 // GET all authorized domains for the current tenant
 router.get('/domains', authMiddleware, async (req, res) => {

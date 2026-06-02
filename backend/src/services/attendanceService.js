@@ -1,4 +1,5 @@
 const { query } = require('../config/db');
+const { getCompanyHolidays } = require('../utils/holidays');
 
 /**
  * Attendance Service
@@ -799,6 +800,11 @@ const getDailyAttendance = async (companyId, dateStr) => {
   const companyTz = await getCompanyTimezone(companyId);
   const brkCfg = await getBreakConfig(companyId);
 
+  // Weekend / company-holiday → non-working status for employees with no record
+  const holidaySet = new Set((await getCompanyHolidays(companyId)).map(h => h.date));
+  const _dow = new Date(dateStr + 'T00:00:00').getDay();
+  const nonWorkingStatus = (_dow === 0 || _dow === 6) ? 'WEEKEND' : (holidaySet.has(dateStr) ? 'OFFICE HOLIDAY' : 'ABSENT');
+
   const records = employees.rows.map((emp) => {
     const existing = attendance.rows.find(a => a.employee_id == emp.id);
     const empSessions = sessions.rows.filter(s => s.employee_id == emp.id);
@@ -901,11 +907,11 @@ const getDailyAttendance = async (companyId, dateStr) => {
       employee_id: emp.id, 
       email: emp.email,
       is_checked_in: false,
-      name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown', 
-      status: 'ABSENT', 
-      check_in: '-', 
-      check_out: '-', 
-      workHours: '0h 00m' 
+      name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown',
+      status: nonWorkingStatus,
+      check_in: '-',
+      check_out: '-',
+      workHours: '0h 00m'
     };
   });
 
@@ -960,6 +966,11 @@ const getMonthlyAttendance = async (companyId, month, year) => {
   const companyTz = await getCompanyTimezone(companyId);
   const brkCfg = await getBreakConfig(companyId);
 
+  // Company holidays (paid non-working days, like weekends)
+  const holidayList = await getCompanyHolidays(companyId);
+  const holidayMap = {};
+  holidayList.forEach(h => { holidayMap[h.date] = h.name; });
+
   // Build days array
   const days = [];
   for (let d = 1; d <= lastDay; d++) {
@@ -983,9 +994,10 @@ const getMonthlyAttendance = async (companyId, month, year) => {
         if (dateStr > today) {
           records[emp.id][dateStr] = { status: '-' };
         } else {
-          // Check if weekend (Sat/Sun)
+          // Weekend (Sat/Sun) and company holidays are non-working — not Absent
           const dow = new Date(dateStr + 'T00:00:00').getDay();
-          records[emp.id][dateStr] = { status: dow === 0 || dow === 6 ? 'WEEKEND' : 'ABSENT' };
+          const status = (dow === 0 || dow === 6) ? 'WEEKEND' : (holidayMap[dateStr] !== undefined ? 'OFFICE HOLIDAY' : 'ABSENT');
+          records[emp.id][dateStr] = { status };
         }
         continue;
       }
@@ -1053,6 +1065,14 @@ const getMonthlyAttendance = async (companyId, month, year) => {
         if (!specialEvents[matchDate]) specialEvents[matchDate] = [];
         specialEvents[matchDate].push({ type: 'anniversary', empId: emp.id, name: empName, years });
       }
+    }
+  }
+
+  // Company holidays for this month → calendar chips
+  for (const dateStr of days) {
+    if (holidayMap[dateStr] !== undefined) {
+      if (!specialEvents[dateStr]) specialEvents[dateStr] = [];
+      specialEvents[dateStr].push({ type: 'holiday', name: holidayMap[dateStr] });
     }
   }
 

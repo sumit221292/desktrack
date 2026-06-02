@@ -194,7 +194,7 @@ const AttendanceCalendar = () => {
         <div className="p-4 border-t border-slate-100">
           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Legend</p>
           <div className="grid grid-cols-2 gap-1">
-            {['PRESENT','LATE','OVER LATE','HALF DAY','ABSENT','WEEKEND'].map(key => {
+            {['PRESENT','LATE','OVER LATE','HALF DAY','ABSENT','WEEKEND','OFFICE HOLIDAY'].map(key => {
               const val = getStatusConfig(key);
               return (
                 <div key={key} className="flex items-center gap-1.5">
@@ -267,22 +267,34 @@ const AttendanceCalendar = () => {
                             ${isSelected ? 'bg-blue-50' : 'hover:bg-blue-50/40'}`}
                         >
                           {/* Date number */}
-                          <div className="px-2 pt-1.5 pb-1 flex justify-end">
+                          <div className="px-2 pt-1.5 pb-1 flex justify-between items-center">
+                            {isWeekend
+                              ? <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 bg-slate-100 rounded px-1 py-0.5">Week-off</span>
+                              : <span />}
                             <span className={`text-xs font-medium leading-none flex items-center justify-center
                               ${isToday ? 'w-6 h-6 bg-blue-600 text-white rounded-full' : isWeekend ? 'text-slate-400' : 'text-slate-600'}`}>
                               {day}
                             </span>
                           </div>
 
-                          {/* Special events (birthday/anniversary) */}
+                          {/* Special events (holiday / birthday / anniversary) */}
                           <div className="px-1 space-y-[2px] overflow-y-auto max-h-[84px] custom-scrollbar">
-                            {specialEvts.map((evt, ei) => (
-                              <div key={`evt-${ei}`}
-                                className={`w-full rounded-[4px] px-1.5 py-[3px] text-[10px] font-medium truncate
-                                  ${evt.type === 'birthday' ? 'bg-pink-50 text-pink-600 border-l-[3px] border-pink-400' : 'bg-indigo-50 text-indigo-600 border-l-[3px] border-indigo-400'}`}>
-                                {evt.type === 'birthday' ? '🎂' : '🎉'} {evt.name.split(' ')[0]} {evt.type === 'birthday' ? 'Birthday' : `${evt.years}yr Anniv.`}
-                              </div>
-                            ))}
+                            {specialEvts.map((evt, ei) => {
+                              const isHol = evt.type === 'holiday';
+                              const isBday = evt.type === 'birthday';
+                              const cls = isHol ? 'bg-amber-50 text-amber-700 border-amber-400'
+                                : isBday ? 'bg-pink-50 text-pink-600 border-pink-400'
+                                : 'bg-indigo-50 text-indigo-600 border-indigo-400';
+                              const label = isHol ? `🎌 ${evt.name}`
+                                : isBday ? `🎂 ${evt.name.split(' ')[0]} Birthday`
+                                : `🎉 ${evt.name.split(' ')[0]} ${evt.years}yr Anniv.`;
+                              return (
+                                <div key={`evt-${ei}`} title={isHol ? evt.name : undefined}
+                                  className={`w-full rounded-[4px] px-1.5 py-[3px] text-[10px] font-medium truncate border-l-[3px] ${cls}`}>
+                                  {label}
+                                </div>
+                              );
+                            })}
 
                             {/* Employee attendance chips */}
                             {filteredEmps.map(emp => {

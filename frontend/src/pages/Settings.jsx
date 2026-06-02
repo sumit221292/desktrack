@@ -55,6 +55,54 @@ const Settings = () => {
   const [editOptionName, setEditOptionName] = useState('');
   const [loadingOptions, setLoadingOptions] = useState(false);
 
+  // ── Holidays ──
+  const [holidayYear, setHolidayYear] = useState(new Date().getFullYear());
+  const [availableHolidays, setAvailableHolidays] = useState([]);
+  const [selectedHolidays, setSelectedHolidays] = useState([]); // [{date, name}]
+  const [holidayLoading, setHolidayLoading] = useState(false);
+  const [holidaySaved, setHolidaySaved] = useState(false);
+  const MAX_HOLIDAYS = 10;
+
+  // Load the company's saved holidays
+  useEffect(() => {
+    api.get('/settings/config')
+      .then(res => setSelectedHolidays(Array.isArray(res.data?.holidays) ? res.data.holidays : []))
+      .catch(() => {});
+  }, []);
+
+  const fetchHolidays = async () => {
+    setHolidayLoading(true);
+    try {
+      const res = await api.get(`/settings/holidays/available?year=${holidayYear}`);
+      setAvailableHolidays(res.data?.holidays || []);
+    } catch (err) {
+      alert('Failed to fetch holidays.');
+    } finally {
+      setHolidayLoading(false);
+    }
+  };
+
+  const toggleHoliday = (h) => {
+    setHolidaySaved(false);
+    setSelectedHolidays(prev => {
+      const exists = prev.find(x => x.date === h.date);
+      if (exists) return prev.filter(x => x.date !== h.date);
+      if (prev.length >= MAX_HOLIDAYS) { alert(`You can select up to ${MAX_HOLIDAYS} holidays.`); return prev; }
+      return [...prev, { date: h.date, name: h.name }];
+    });
+  };
+
+  const saveHolidays = async () => {
+    try {
+      const sorted = [...selectedHolidays].sort((a, b) => a.date.localeCompare(b.date));
+      await api.put('/settings/config', { settings: { holidays: sorted } });
+      setSelectedHolidays(sorted);
+      setHolidaySaved(true);
+    } catch (err) {
+      alert('Failed to save holidays.');
+    }
+  };
+
   // Fetch roles from DB + employee counts
   useEffect(() => {
     const fetchRolesAndCounts = async () => {
@@ -460,6 +508,13 @@ const Settings = () => {
           >
             <CreditCard size={18} />
             <span>Payroll Settings</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('holidays')}
+            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-colors font-medium ${activeTab === 'holidays' ? 'bg-primary-50 text-primary-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}
+          >
+            <CalendarIcon size={18} />
+            <span>Holidays</span>
           </button>
           <button
             onClick={() => setActiveTab('authentication')}
@@ -937,6 +992,63 @@ const Settings = () => {
                   </div>
                 </div>
               </div>
+            </Card>
+          )}
+
+          {activeTab === 'holidays' && (
+            <Card className="shadow-premium">
+              <div className="flex items-start justify-between mb-1">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-900 font-display tracking-tight">Holidays</h2>
+                  <p className="text-sm text-slate-500 font-medium mt-1">Fetch the year's public holidays and select up to {MAX_HOLIDAYS} as company holidays. These show on the calendar as paid week-offs and are excluded from payroll working days.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select value={holidayYear} onChange={e => setHolidayYear(+e.target.value)}
+                    className="px-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold bg-white">
+                    {[0, 1, 2].map(off => { const y = new Date().getFullYear() + off; return <option key={y} value={y}>{y}</option>; })}
+                  </select>
+                  <button onClick={fetchHolidays} disabled={holidayLoading}
+                    className="px-4 py-2 rounded-xl text-sm font-bold bg-primary-600 text-white hover:bg-primary-700 transition-colors disabled:opacity-50">
+                    {holidayLoading ? 'Fetching…' : 'Fetch Holidays'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between mt-5 mb-3">
+                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Selected: {selectedHolidays.length}/{MAX_HOLIDAYS}</span>
+                <button onClick={saveHolidays}
+                  className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors">
+                  {holidaySaved ? '✓ Saved' : 'Save Holidays'}
+                </button>
+              </div>
+
+              {availableHolidays.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-sm border border-dashed border-slate-200 rounded-xl">
+                  {selectedHolidays.length > 0
+                    ? <>Currently selected: {selectedHolidays.map(h => h.name).join(', ')}.<br />Click "Fetch Holidays" to change the selection.</>
+                    : 'Click "Fetch Holidays" to load this year\'s public holidays.'}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
+                  {availableHolidays.map(h => {
+                    const checked = !!selectedHolidays.find(x => x.date === h.date);
+                    const atMax = selectedHolidays.length >= MAX_HOLIDAYS && !checked;
+                    const d = new Date(h.date + 'T00:00:00');
+                    const dateLabel = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+                    return (
+                      <label key={h.date}
+                        className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${checked ? 'border-primary-500 bg-primary-50' : atMax ? 'border-slate-100 bg-slate-50 opacity-50 cursor-not-allowed' : 'border-slate-200 hover:border-slate-300'}`}>
+                        <input type="checkbox" checked={checked} disabled={atMax} onChange={() => toggleHoliday(h)}
+                          className="w-4 h-4 accent-primary-600" />
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">{h.name}</p>
+                          <p className="text-xs text-slate-400">{dateLabel}</p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </Card>
           )}
 
