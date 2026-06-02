@@ -74,11 +74,14 @@ const SalarySlip = ({ data, company, formatCurrency, currencyConfig }) => {
     return b ? b.remaining : 0;
   };
   const leavesTaken = (parseFloat(data.paid_leave_days) || 0) + (parseFloat(data.unpaid_leave_days) || 0);
+  const lopDays = (parseFloat(data.absent_days) || 0) + (parseFloat(data.unpaid_leave_days) || 0);
+  const daysInMonth = new Date(data.year || 2000, data.month || 1, 0).getDate();
 
   const leftInfo = [
     ['Employee Name', `${data.first_name || ''} ${data.last_name || ''}`.trim() || '—'],
     ['Employee Code', data.employee_code || '—'],
     ['Designation', data.designation_name || '—'],
+    ['Department', data.department_name || '—'],
     ['PAN', data.pan || '—'],
     ['Bank Account Number', data.bank_account || '—'],
     ['Bank IFSC', data.bank_ifsc || '—'],
@@ -86,12 +89,13 @@ const SalarySlip = ({ data, company, formatCurrency, currencyConfig }) => {
   ];
   const rightInfo = [
     ['Date of Joining', fmtDate(data.joining_date)],
+    ['Days in Month', daysInMonth],
     ['Total Working Days', data.total_working_days || 0],
     ['Working Days Attended', data.payable_days || 0],
+    ['LOP Days', lopDays],
     ['Leaves Taken (month)', leavesTaken],
     ['CL Balance', balByCode('CL')],
     ['SL Balance', balByCode('SL')],
-    ['Currency', currencyConfig?.code || 'INR'],
   ];
   const maxRows = Math.max(incomeRows.length, dedRows.length);
 
