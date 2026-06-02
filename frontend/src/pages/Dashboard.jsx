@@ -7,7 +7,31 @@ import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { motion } from 'framer-motion';
-import { getStatusConfig } from '../utils/statusConfig';
+import { getStatusConfig, getLiveStatus } from '../utils/statusConfig';
+
+// Today's date as a local YYYY-MM-DD string (matches AuthContext.selectedDate)
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+// Map daily-attendance rows -> Recent Activity items (punctuality + live status)
+const buildRecentActivity = (rows) => rows.map((a) => {
+  const statusStr = a.displayStatus || a.arrival_status || a.status || 'Present';
+  const liveStatus = getLiveStatus(a);
+  return {
+    id: a.id,
+    name: a.name,
+    email: a.email,
+    time: new Date(a.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }),
+    status: statusStr,
+    role: a.role || 'Employee',
+    cfg: getStatusConfig(statusStr),
+    liveStatus,
+    liveCfg: liveStatus ? getStatusConfig(liveStatus) : null,
+    raw: a,
+  };
+});
 
 // Live break display — ticks every second, shows HH:MM:SS
 const LiveBreakDisplay = ({ completedMins = 0, activeStart }) => {
@@ -279,20 +303,7 @@ const Dashboard = () => {
         const filtered = isEmployee
           ? baseFiltered.filter(a => a.email && user?.email && a.email.toLowerCase() === user.email.toLowerCase())
           : baseFiltered;
-        const active = filtered.map(a => {
-          const statusStr = a.displayStatus || a.arrival_status || a.status || 'Present';
-          const cfg = getStatusConfig(statusStr);
-          return {
-            id: a.id,
-            name: a.name,
-            email: a.email,
-            time: new Date(a.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }),
-            status: statusStr,
-            role: a.role || 'Employee',
-            cfg,
-            raw: a // keep full record for detail modal
-          };
-        });
+        const active = buildRecentActivity(filtered);
         setRecentActivity(active.slice(0, 10));
 
         // Current user's attendance for the status bar
@@ -409,6 +420,27 @@ const Dashboard = () => {
 
     fetchData();
   }, [selectedDate, isCheckedIn, user]);
+
+  // Auto-refresh Recent Activity every 30s (today only) so live check-in/out/
+  // break status stays current without a manual reload.
+  useEffect(() => {
+    if (selectedDate !== todayStr()) return;
+    const refresh = async () => {
+      try {
+        const res = await api.get(`/attendance?date=${selectedDate}`);
+        const data = res.data;
+        const baseFiltered = Array.isArray(data)
+          ? data.filter(a => a.check_in && a.check_in !== '-' && !String(a.id).startsWith('no-ref-'))
+          : [];
+        const filtered = isEmployee
+          ? baseFiltered.filter(a => a.email && user?.email && a.email.toLowerCase() === user.email.toLowerCase())
+          : baseFiltered;
+        setRecentActivity(buildRecentActivity(filtered).slice(0, 10));
+      } catch { /* ignore transient refresh errors */ }
+    };
+    const id = setInterval(refresh, 30000);
+    return () => clearInterval(id);
+  }, [selectedDate, isEmployee, user]);
 
   const handleCheckInOut = () => {
     toggleCheckIn();
@@ -640,11 +672,16 @@ const Dashboard = () => {
                   </div>
                   <div>
                     <p className="font-bold text-slate-800 text-sm group-hover:text-primary-700 transition-colors underline-offset-2 group-hover:underline">{usr.name}</p>
-                    <p className="text-xs text-slate-500 font-medium">{usr.role} &bull; Check-in: {usr.time}</p>
+                    <p className="text-xs text-slate-500 font-medium flex items-center gap-1.5 flex-wrap">
+                      <span>{usr.role} &bull; Check-in: {usr.time}</span>
+                      {usr.liveCfg && (
+                        <span className={`px-1.5 py-px rounded text-[9px] font-bold border ${usr.cfg.tw}`}>{usr.cfg.label}</span>
+                      )}
+                    </p>
                   </div>
                 </div>
-                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${usr.cfg.tw}`}>
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: usr.cfg.color }} />{usr.cfg.label}
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${(usr.liveCfg || usr.cfg).tw}`}>
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: (usr.liveCfg || usr.cfg).color }} />{(usr.liveCfg || usr.cfg).label}
                 </span>
               </div>
             ))}
