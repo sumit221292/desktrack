@@ -17,6 +17,15 @@ import api from '../services/api';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+// Tax slabs are contiguous bands keyed by their upper limit (`to`). Each slab's
+// `from` is a display-only value = previous slab's `to` + 1 (first slab = 0),
+// so e.g. "₹3,00,000" upper is followed by "₹3,00,001" lower — no overlap.
+// The tax CALCULATION uses the `to` boundaries (not `from`), so this stays exact.
+const rederiveSlabFroms = (arr) => (arr || []).map((s, i) => ({
+  ...s,
+  from: i === 0 ? 0 : ((arr[i - 1].to ?? 0) + 1),
+}));
 const STATUS_MAP = {
   PROCESSED: { label: 'Processed', variant: 'primary' },
   PAID:      { label: 'Paid',      variant: 'success' },
@@ -242,17 +251,17 @@ const Payroll = () => {
   const DEFAULT_SLABS = {
     new: [
       { from: 0,       to: 300000,  rate: 0 },
-      { from: 300000,  to: 700000,  rate: 5 },
-      { from: 700000,  to: 1000000, rate: 10 },
-      { from: 1000000, to: 1200000, rate: 15 },
-      { from: 1200000, to: 1500000, rate: 20 },
-      { from: 1500000, to: null,    rate: 30 },
+      { from: 300001,  to: 700000,  rate: 5 },
+      { from: 700001,  to: 1000000, rate: 10 },
+      { from: 1000001, to: 1200000, rate: 15 },
+      { from: 1200001, to: 1500000, rate: 20 },
+      { from: 1500001, to: null,    rate: 30 },
     ],
     old: [
-      { from: 0,      to: 250000,  rate: 0 },
-      { from: 250000, to: 500000,  rate: 5 },
-      { from: 500000, to: 1000000, rate: 20 },
-      { from: 1000000,to: null,    rate: 30 },
+      { from: 0,       to: 250000,  rate: 0 },
+      { from: 250001,  to: 500000,  rate: 5 },
+      { from: 500001,  to: 1000000, rate: 20 },
+      { from: 1000001, to: null,    rate: 30 },
     ],
   };
   const DEFAULT_TAX_DECL = () => ({
@@ -353,7 +362,7 @@ const Payroll = () => {
               stdDeductionNew: parseFloat(td.std_deduction_new) || 75000,
               stdDeductionOld: parseFloat(td.std_deduction_old) || 50000,
               cessRate: parseFloat(td.cess_rate) || 4,
-              slabs: (slabs.new && slabs.old) ? slabs : JSON.parse(JSON.stringify(DEFAULT_SLABS)),
+              slabs: (slabs.new && slabs.old) ? { new: rederiveSlabFroms(slabs.new), old: rederiveSlabFroms(slabs.old) } : JSON.parse(JSON.stringify(DEFAULT_SLABS)),
               sec80C: parseFloat(td.sec80c) || 0,
               sec80D: parseFloat(td.sec80d) || 0,
               sec80G: parseFloat(td.sec80g) || 0,
@@ -1052,12 +1061,13 @@ const Payroll = () => {
           : stdDed;
         const taxableIncome = Math.max(0, annualGross - totalDed);
         const calcTaxFromSlabs = (income, slabs) => {
-          let tax = 0;
-          const sorted = [...slabs].sort((a,b) => a.from - b.from);
+          let tax = 0, lower = 0; // bands are contiguous by `to`; `from` is display-only
+          const sorted = [...(slabs || [])].sort((a,b) => (a.from ?? 0) - (b.from ?? 0));
           for (const slab of sorted) {
-            if (income <= slab.from) break;
-            const upper = slab.to === null ? income : Math.min(income, slab.to);
-            tax += Math.round((upper - slab.from) * (slab.rate / 100));
+            if (income <= lower) break;
+            const cap = (slab.to === null || slab.to === undefined) ? income : Math.min(income, slab.to);
+            if (cap > lower) tax += Math.round((cap - lower) * ((slab.rate || 0) / 100));
+            lower = (slab.to === null || slab.to === undefined) ? income : slab.to;
           }
           return tax;
         };
@@ -1067,18 +1077,25 @@ const Payroll = () => {
         const monthlyTDS = Math.round(totalTax / 12);
 
         const updateSlab = (regime, idx, field, val) => {
-          const updated = taxDecl.slabs[regime].map((s,i) => i === idx ? {...s, [field]: val === '' ? null : +val} : s);
+          // Editing a slab's `to` shifts the next slab's `from` (= to + 1); rederive to keep bands contiguous.
+          const updated = rederiveSlabFroms(taxDecl.slabs[regime].map((s,i) => i === idx ? {...s, [field]: val === '' ? null : +val} : s));
           td(p => ({...p, slabs: {...p.slabs, [regime]: updated}}));
         };
         const addSlab = (regime) => {
           const slabs  = taxDecl.slabs[regime];
           const last   = slabs[slabs.length-1];
-          const newFrom = last.to || (last.from + 500000);
-          td(p => ({...p, slabs: {...p.slabs, [regime]: [...slabs.map((s,i)=> i===slabs.length-1 ? {...s, to: newFrom} : s), {from: newFrom, to: null, rate: 30}]}}));
+          const boundary = last.to ?? ((last.from ?? 0) + 500000); // previous slab's upper limit
+          // prev slab ends at `boundary`; new slab starts at boundary + 1 (no overlap)
+          const arr = rederiveSlabFroms([
+            ...slabs.map((s,i)=> i===slabs.length-1 ? {...s, to: boundary} : s),
+            {from: boundary + 1, to: null, rate: 30},
+          ]);
+          td(p => ({...p, slabs: {...p.slabs, [regime]: arr}}));
         };
         const removeSlab = (regime, idx) => {
           if (taxDecl.slabs[regime].length <= 1) return;
-          td(p => ({...p, slabs: {...p.slabs, [regime]: p.slabs[regime].filter((_,i)=>i!==idx)}}));
+          const arr = rederiveSlabFroms(taxDecl.slabs[regime].filter((_,i)=>i!==idx));
+          td(p => ({...p, slabs: {...p.slabs, [regime]: arr}}));
         };
 
         const selEmp = employees.find(e => e.id == selEmpId);
