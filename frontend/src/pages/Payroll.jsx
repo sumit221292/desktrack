@@ -12,6 +12,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
+import Logo from '../components/ui/Logo';
 import api from '../services/api';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -118,11 +119,7 @@ const SalarySlip = ({ data, company, formatCurrency, currencyConfig }) => {
 
       {/* Company header */}
       <div className="cfp-head">
-        <svg width="46" height="46" viewBox="0 0 46 46" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect x="1" y="1" width="44" height="44" rx="10" fill="#fff" stroke="#e2e8f0" />
-          <path d="M30 16a10 10 0 1 0 0 14" stroke="#F47A20" strokeWidth="5" strokeLinecap="round" fill="none" />
-          <path d="M22 14v18" stroke="#1F6FB2" strokeWidth="5" strokeLinecap="round" />
-        </svg>
+        <Logo size={48} />
         <div className="cfp-co">
           <div className="cfp-co-name">{(company || 'Creative Frenzy').toUpperCase()} PRIVATE LIMITED</div>
           <div className="cfp-co-addr">Ground Floor, D-247/1, Sector-63, Noida, UP</div>
