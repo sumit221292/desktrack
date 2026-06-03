@@ -202,13 +202,20 @@ const Dashboard = () => {
   const [breakTick, setBreakTick] = useState(0);
   const [activityDetail, setActivityDetail] = useState(null);
   const [activityHistory, setActivityHistory] = useState({ sessions: [], breaks: { LUNCH: [], TEA: [] } });
+  const [modalTick, setModalTick] = useState(0);
 
   // Fetch full activity history when modal opens
   useEffect(() => {
     if (!activityDetail?.id) { setActivityHistory({ sessions: [], breaks: { LUNCH: [], TEA: [] } }); return; }
-    api.get(`/attendance/${activityDetail.id}/activity`)
+    const load = () => api.get(`/attendance/${activityDetail.id}/activity`)
       .then(res => setActivityHistory(res.data || { sessions: [], breaks: { LUNCH: [], TEA: [] } }))
-      .catch(() => setActivityHistory({ sessions: [], breaks: { LUNCH: [], TEA: [] } }));
+      .catch(() => {});
+    load();
+    // While open: tick every second (live counting of the active session / ongoing
+    // break) and refetch every 3s so new sessions / break-ends appear without reopening.
+    const tick = setInterval(() => setModalTick(t => t + 1), 1000);
+    const refetch = setInterval(load, 3000);
+    return () => { clearInterval(tick); clearInterval(refetch); };
   }, [activityDetail?.id]);
 
   const lunchAllowed = breakConfig?.lunch_allowed_minutes || 45;
@@ -697,8 +704,16 @@ const Dashboard = () => {
       <Modal isOpen={!!activityDetail} onClose={() => setActivityDetail(null)} title={activityDetail ? `${activityDetail.name} — Today's Activity` : 'Activity Detail'} maxWidth="max-w-2xl">
         {activityDetail && (() => {
           const fmtT = (iso) => iso ? new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : '—';
-          // seconds between two ISO times (to now if the end is missing — active session/break)
+          // seconds between two ISO times (to now if the end is missing — active session/break).
+          // Re-evaluated every second via modalTick, so active items count up live.
           const secsBetween = (a, b) => a ? Math.max(0, Math.floor((new Date(b || Date.now()).getTime() - new Date(a).getTime()) / 1000)) : 0;
+          const sumBreaks = (arr) => (arr || []).reduce((sum, b) => sum + secsBetween(b.start, b.end), 0);
+          const lunchLive = sumBreaks(activityHistory.breaks.LUNCH);
+          const teaLive = sumBreaks(activityHistory.breaks.TEA);
+          const breakLive = lunchLive + teaLive;
+          const workLive = activityHistory.sessions.length
+            ? Math.max(0, activityHistory.sessions.reduce((sum, s) => sum + secsBetween(s.check_in, s.check_out), 0) - breakLive)
+            : (activityDetail.net_work_seconds || 0);
           return (
             <div className="space-y-5">
               {/* Summary Card */}
@@ -715,11 +730,11 @@ const Dashboard = () => {
                 </div>
                 <div className="p-3 rounded-lg bg-blue-50 border border-blue-100">
                   <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Work</p>
-                  <p className="text-lg font-bold text-blue-700 font-mono">{fmtHMS(activityDetail.net_work_seconds)}</p>
+                  <p className="text-lg font-bold text-blue-700 font-mono">{fmtHMS(workLive)}</p>
                 </div>
                 <div className="p-3 rounded-lg bg-amber-50 border border-amber-100">
                   <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Break</p>
-                  <p className="text-lg font-bold text-amber-700 font-mono">{fmtHMS(activityDetail.total_break_seconds)}</p>
+                  <p className="text-lg font-bold text-amber-700 font-mono">{fmtHMS(breakLive)}</p>
                 </div>
               </div>
 
@@ -740,8 +755,8 @@ const Dashboard = () => {
                           <span className="text-slate-300">→</span>
                           <span className="font-mono text-red-600">{s.check_out ? fmtT(s.check_out) : 'Active'}</span>
                         </div>
-                        <span className="font-bold text-slate-700 font-mono">
-                          {s.check_out ? fmtHMS(secsBetween(s.check_in, s.check_out)) : 'Active'}
+                        <span className={`font-bold font-mono ${s.check_out ? 'text-slate-700' : 'text-emerald-600 animate-pulse'}`}>
+                          {fmtHMS(secsBetween(s.check_in, s.check_out))}
                         </span>
                       </div>
                     ))}
@@ -753,7 +768,7 @@ const Dashboard = () => {
               <div>
                 <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
                   <span>🍽️ Lunch Breaks ({activityHistory.breaks.LUNCH.length})</span>
-                  <span className="text-orange-600 font-mono">Total: {fmtHMS(activityDetail.lunch_actual_seconds)}</span>
+                  <span className="text-orange-600 font-mono">Total: {fmtHMS(lunchLive)}</span>
                 </h4>
                 {activityHistory.breaks.LUNCH.length === 0 ? (
                   <p className="text-xs text-slate-400 italic">Not taken</p>
@@ -767,8 +782,8 @@ const Dashboard = () => {
                           <span className="text-orange-300">→</span>
                           <span className="font-mono text-orange-700">{b.end ? fmtT(b.end) : 'Ongoing'}</span>
                         </div>
-                        <span className={`font-bold font-mono ${b.status === 'ACTIVE' ? 'text-amber-600 animate-pulse' : 'text-orange-700'}`}>
-                          {b.end ? fmtHMS(secsBetween(b.start, b.end)) : 'Ongoing'}
+                        <span className={`font-bold font-mono ${!b.end ? 'text-amber-600 animate-pulse' : 'text-orange-700'}`}>
+                          {fmtHMS(secsBetween(b.start, b.end))}
                         </span>
                       </div>
                     ))}
@@ -780,7 +795,7 @@ const Dashboard = () => {
               <div>
                 <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
                   <span>🍵 Tea Breaks ({activityHistory.breaks.TEA.length})</span>
-                  <span className="text-teal-600 font-mono">Total: {fmtHMS(activityDetail.tea_actual_seconds)}</span>
+                  <span className="text-teal-600 font-mono">Total: {fmtHMS(teaLive)}</span>
                 </h4>
                 {activityHistory.breaks.TEA.length === 0 ? (
                   <p className="text-xs text-slate-400 italic">Not taken</p>
@@ -794,8 +809,8 @@ const Dashboard = () => {
                           <span className="text-teal-300">→</span>
                           <span className="font-mono text-teal-700">{b.end ? fmtT(b.end) : 'Ongoing'}</span>
                         </div>
-                        <span className={`font-bold font-mono ${b.status === 'ACTIVE' ? 'text-amber-600 animate-pulse' : 'text-teal-700'}`}>
-                          {b.end ? fmtHMS(secsBetween(b.start, b.end)) : 'Ongoing'}
+                        <span className={`font-bold font-mono ${!b.end ? 'text-amber-600 animate-pulse' : 'text-teal-700'}`}>
+                          {fmtHMS(secsBetween(b.start, b.end))}
                         </span>
                       </div>
                     ))}
