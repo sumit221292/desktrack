@@ -39,6 +39,11 @@ const computeAnnualTax = (annualGross, decl) => {
 // Indian FY month order: April = 0 … March = 11.
 const fyMonthIndex = (m) => (m >= 4 ? m - 4 : m + 8);
 
+// A single month's TDS is capped at this % of that month's net payable, so a low /
+// LOP month still leaves the employee a reasonable take-home. The remaining tax is
+// recovered in later (full-salary) months or refunded at year-end via ITR.
+const TDS_MONTHLY_CAP_PCT = 30;
+
 // Monthly TDS = (projected annual tax − TDS already deducted this FY) ÷ remaining
 // months, never more than the month's net payable. Auto-revises as income (LOP)
 // changes. Returns null if the employee has no tax declaration (→ caller falls
@@ -69,7 +74,10 @@ const computeMonthlyTDS = async ({ companyId, employeeId, month, year, fullMonth
   const projectedAnnualGross = ytdGross + (earnedThisMonth || 0) + (fullMonthlyGross || 0) * remainingAfter;
   const { annualTax } = computeAnnualTax(projectedAnnualGross, decl);
   let monthlyTds = Math.max(0, Math.round((annualTax - ytdTds) / remainingIncl));
-  const cap = Math.max(0, (earnedThisMonth || 0) - (otherDeductions || 0)); // never exceed net payable
+  const netPayable = Math.max(0, (earnedThisMonth || 0) - (otherDeductions || 0));
+  // Cap at TDS_MONTHLY_CAP_PCT of net payable (≤ net by definition, so salary never
+  // goes negative AND the employee keeps a reasonable take-home in a low/LOP month).
+  const cap = Math.round(netPayable * (TDS_MONTHLY_CAP_PCT / 100));
   return Math.min(monthlyTds, cap);
 };
 
