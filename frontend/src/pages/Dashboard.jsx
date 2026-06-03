@@ -421,8 +421,9 @@ const Dashboard = () => {
     fetchData();
   }, [selectedDate, isCheckedIn, user]);
 
-  // Auto-refresh Recent Activity every 30s (today only) so live check-in/out/
-  // break status stays current without a manual reload.
+  // Keep Recent Activity live (today only): refetch IMMEDIATELY on any of the current
+  // user's own status changes (check-in/out, lunch, tea) so their card updates with no
+  // lag, and poll every 5s so other employees' check-in/out/break show near-real-time.
   useEffect(() => {
     if (selectedDate !== todayStr()) return;
     const refresh = async () => {
@@ -438,9 +439,10 @@ const Dashboard = () => {
         setRecentActivity(buildRecentActivity(filtered).slice(0, 10));
       } catch { /* ignore transient refresh errors */ }
     };
-    const id = setInterval(refresh, 30000);
+    refresh(); // immediate (fires on mount and whenever own status flips below)
+    const id = setInterval(refresh, 5000);
     return () => clearInterval(id);
-  }, [selectedDate, isEmployee, user]);
+  }, [selectedDate, isEmployee, user, isCheckedIn, onLunch, onTea]);
 
   const handleCheckInOut = () => {
     toggleCheckIn();
