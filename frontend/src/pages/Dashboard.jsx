@@ -34,11 +34,11 @@ const buildRecentActivity = (rows) => rows.map((a) => {
 });
 
 // Live break display — ticks every second, shows HH:MM:SS
-const LiveBreakDisplay = ({ completedMins = 0, activeStart }) => {
+const LiveBreakDisplay = ({ completedSecs = 0, activeStart }) => {
   const [display, setDisplay] = useState('00:00:00');
   useEffect(() => {
     const tick = () => {
-      let totalSec = Math.max(0, completedMins || 0) * 60;
+      let totalSec = Math.max(0, completedSecs || 0);
       if (activeStart) {
         totalSec += Math.max(0, Math.floor((Date.now() - new Date(activeStart).getTime()) / 1000));
       }
@@ -50,7 +50,7 @@ const LiveBreakDisplay = ({ completedMins = 0, activeStart }) => {
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [completedMins, activeStart]);
+  }, [completedSecs, activeStart]);
   return <>{display}</>;
 };
 
@@ -197,8 +197,8 @@ const Dashboard = () => {
   const [onTea, setOnTea] = useState(false);
   const [lunchStartTime, setLunchStartTime] = useState(null);
   const [teaStartTime, setTeaStartTime] = useState(null);
-  const [lunchUsedMins, setLunchUsedMins] = useState(0);
-  const [teaUsedMins, setTeaUsedMins] = useState(0);
+  const [lunchUsedSecs, setLunchUsedSecs] = useState(0);
+  const [teaUsedSecs, setTeaUsedSecs] = useState(0);
   const [breakTick, setBreakTick] = useState(0);
   const [activityDetail, setActivityDetail] = useState(null);
   const [activityHistory, setActivityHistory] = useState({ sessions: [], breaks: { LUNCH: [], TEA: [] } });
@@ -231,12 +231,11 @@ const Dashboard = () => {
   // Calculate live remaining for active break
   const getBreakCountdown = (type) => {
     const startTime = type === 'LUNCH' ? lunchStartTime : teaStartTime;
-    const usedMins = type === 'LUNCH' ? lunchUsedMins : teaUsedMins;
-    const allowed = type === 'LUNCH' ? lunchAllowed : teaAllowed;
-    if (!startTime) return { remaining: allowed - usedMins, elapsed: 0, exceeded: false };
+    const usedSecs = type === 'LUNCH' ? lunchUsedSecs : teaUsedSecs;
+    const allowedSec = (type === 'LUNCH' ? lunchAllowed : teaAllowed) * 60;
+    if (!startTime) return { remaining: allowedSec - usedSecs, elapsed: 0, exceeded: (allowedSec - usedSecs) < 0 };
     const elapsedSec = Math.floor((Date.now() - new Date(startTime).getTime()) / 1000);
-    const totalUsedSec = (usedMins * 60) + elapsedSec;
-    const remainingSec = (allowed * 60) - totalUsedSec;
+    const remainingSec = allowedSec - (usedSecs + elapsedSec);
     return { remaining: remainingSec, elapsed: elapsedSec, exceeded: remainingSec < 0 };
   };
 
@@ -258,9 +257,9 @@ const Dashboard = () => {
       });
       if (type === 'LUNCH') {
         if (isOn) {
-          // Ending lunch — add elapsed to used
-          const elapsed = lunchStartTime ? Math.ceil((Date.now() - new Date(lunchStartTime).getTime()) / 60000) : 0;
-          setLunchUsedMins(prev => prev + elapsed);
+          // Ending lunch — add elapsed SECONDS to used (no minute round-up)
+          const elapsed = lunchStartTime ? Math.max(0, Math.floor((Date.now() - new Date(lunchStartTime).getTime()) / 1000)) : 0;
+          setLunchUsedSecs(prev => prev + elapsed);
           setLunchStartTime(null);
         } else {
           setLunchStartTime(new Date().toISOString());
@@ -268,8 +267,8 @@ const Dashboard = () => {
         setOnLunch(!isOn);
       } else {
         if (isOn) {
-          const elapsed = teaStartTime ? Math.ceil((Date.now() - new Date(teaStartTime).getTime()) / 60000) : 0;
-          setTeaUsedMins(prev => prev + elapsed);
+          const elapsed = teaStartTime ? Math.max(0, Math.floor((Date.now() - new Date(teaStartTime).getTime()) / 1000)) : 0;
+          setTeaUsedSecs(prev => prev + elapsed);
           setTeaStartTime(null);
         } else {
           setTeaStartTime(new Date().toISOString());
@@ -332,18 +331,18 @@ const Dashboard = () => {
             // _completed_minutes = only completed pairs (no active session)
             if (lunchActive) {
               setLunchStartTime(myRec.lunch_active_start || myRec.lunch_start || new Date().toISOString());
-              setLunchUsedMins(parseInt(myRec.lunch_completed_minutes) || 0);
+              setLunchUsedSecs(parseInt(myRec.lunch_completed_seconds) || 0);
             } else {
               setLunchStartTime(null);
-              setLunchUsedMins(parseInt(myRec.lunch_completed_minutes ?? myRec.lunch_actual_minutes) || 0);
+              setLunchUsedSecs(parseInt(myRec.lunch_completed_seconds) || 0);
             }
 
             if (teaActive) {
               setTeaStartTime(myRec.tea_active_start || myRec.tea_start || new Date().toISOString());
-              setTeaUsedMins(parseInt(myRec.tea_completed_minutes) || 0);
+              setTeaUsedSecs(parseInt(myRec.tea_completed_seconds) || 0);
             } else {
               setTeaStartTime(null);
-              setTeaUsedMins(parseInt(myRec.tea_completed_minutes ?? myRec.tea_actual_minutes) || 0);
+              setTeaUsedSecs(parseInt(myRec.tea_completed_seconds) || 0);
             }
           }
 
@@ -546,12 +545,12 @@ const Dashboard = () => {
                   <div className="text-center">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Break</p>
                     <p className={`text-lg font-bold font-mono ${onLunch || onTea ? 'text-red-500' : 'text-amber-600'}`}>
-                      <LiveBreakDisplay completedMins={lunchUsedMins + teaUsedMins} activeStart={onLunch ? lunchStartTime : onTea ? teaStartTime : null} />
+                      <LiveBreakDisplay completedSecs={lunchUsedSecs + teaUsedSecs} activeStart={onLunch ? lunchStartTime : onTea ? teaStartTime : null} />
                     </p>
                   </div>
                   <div className="flex flex-col gap-0.5 text-[10px] font-mono">
-                    <span className="text-orange-600 font-bold">🍽️ <LiveBreakDisplay completedMins={lunchUsedMins} activeStart={onLunch ? lunchStartTime : null} /> / {fmtHMS(lunchAllowed * 60)}</span>
-                    <span className="text-teal-600 font-bold">🍵 <LiveBreakDisplay completedMins={teaUsedMins} activeStart={onTea ? teaStartTime : null} /> / {fmtHMS(teaAllowed * 60)}</span>
+                    <span className="text-orange-600 font-bold">🍽️ <LiveBreakDisplay completedSecs={lunchUsedSecs} activeStart={onLunch ? lunchStartTime : null} /> / {fmtHMS(lunchAllowed * 60)}</span>
+                    <span className="text-teal-600 font-bold">🍵 <LiveBreakDisplay completedSecs={teaUsedSecs} activeStart={onTea ? teaStartTime : null} /> / {fmtHMS(teaAllowed * 60)}</span>
                   </div>
                 </div>
               </div>
