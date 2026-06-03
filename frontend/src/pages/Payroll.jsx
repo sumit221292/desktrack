@@ -483,7 +483,7 @@ const Payroll = () => {
       return;
     }
     if (!salaryForm.basic_pay || parseFloat(salaryForm.basic_pay) <= 0) {
-      alert('Basic Pay is required and must be greater than 0.');
+      alert('Basic Salary is required and must be greater than 0.');
       return;
     }
     setSubmitting(true);
@@ -1665,12 +1665,12 @@ const Payroll = () => {
                   <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-5">Earnings Components</p>
                   <div className="grid grid-cols-2 gap-4">
                     {[
-                      { key: 'basic_pay',         label: 'Basic Pay *' },
+                      { key: 'basic_pay',         label: 'Basic Salary *' },
                       { key: 'hra',               label: 'HRA' },
-                      { key: 'da',                label: 'Dearness Allowance' },
-                      { key: 'conveyance',        label: 'Conveyance Allowance' },
-                      { key: 'medical',           label: 'Medical Allowance' },
                       { key: 'special_allowance', label: 'Special Allowance' },
+                      { key: 'medical',           label: 'Medical Allowance' },
+                      { key: 'conveyance',        label: 'Telephone Allowance' },
+                      { key: 'da',                label: 'Entertainment Allowance' },
                     ].map(({ key, label }) => (
                       <div key={key}>
                         <label className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5 block">{label}</label>
@@ -1873,12 +1873,12 @@ const Payroll = () => {
             </p>
             <div className="grid grid-cols-2 gap-4">
               {[
-                { key: 'basic_pay', label: 'Basic Pay' },
+                { key: 'basic_pay', label: 'Basic Salary' },
                 { key: 'hra',       label: 'HRA' },
-                { key: 'da',        label: 'DA' },
-                { key: 'conveyance',label: 'Conveyance' },
-                { key: 'medical',   label: 'Medical' },
                 { key: 'special_allowance', label: 'Special Allowance' },
+                { key: 'medical',   label: 'Medical Allowance' },
+                { key: 'conveyance',label: 'Telephone Allowance' },
+                { key: 'da',        label: 'Entertainment Allowance' },
                 { key: 'bonus',     label: 'Bonus' },
                 { key: 'tds',       label: 'TDS' },
               ].map(({ key, label }) => (
@@ -2049,12 +2049,12 @@ const Payroll = () => {
                     <table className="w-full text-sm">
                       <tbody className="divide-y divide-slate-100">
                         {[
-                          ['Basic Pay', (parseFloat(empSS?.basic_pay)||0)*12],
-                          ['House Rent Allowance (HRA)', (parseFloat(empSS?.hra)||0)*12],
-                          ['Dearness Allowance (DA)', (parseFloat(empSS?.da)||0)*12],
-                          ['Conveyance Allowance', (parseFloat(empSS?.conveyance)||0)*12],
-                          ['Medical Allowance', (parseFloat(empSS?.medical)||0)*12],
+                          ['Basic Salary', (parseFloat(empSS?.basic_pay)||0)*12],
+                          ['HRA', (parseFloat(empSS?.hra)||0)*12],
                           ['Special Allowance', (parseFloat(empSS?.special_allowance)||0)*12],
+                          ['Medical Allowance', (parseFloat(empSS?.medical)||0)*12],
+                          ['Telephone Allowance', (parseFloat(empSS?.conveyance)||0)*12],
+                          ['Entertainment Allowance', (parseFloat(empSS?.da)||0)*12],
                         ].map(([label, val]) => (
                           <tr key={label} className="hover:bg-slate-50">
                             <td className="px-6 py-3 text-slate-700">{label}</td>
