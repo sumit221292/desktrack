@@ -796,18 +796,31 @@ const Payroll = () => {
                         </div>
                       </div>
                       {/* Detail row */}
-                      {r ? (
-                        <div className="mt-3 ml-14 flex flex-wrap gap-5 text-xs text-slate-500">
-                          <span>Basic: <strong className="text-slate-700">{formatCurrency(r.basic_pay)}</strong></span>
-                          <span>HRA: <strong className="text-slate-700">{formatCurrency(r.hra)}</strong></span>
-                          <span>DA: <strong className="text-slate-700">{formatCurrency(r.da)}</strong></span>
-                          <span>Gross: <strong className="text-emerald-700">{formatCurrency(r.gross_salary)}</strong></span>
-                          <span className="text-red-400">PF: <strong>{formatCurrency(r.pf)}</strong></span>
-                          <span className="text-red-400">ESI: <strong>{formatCurrency(r.esi)}</strong></span>
-                          <span className="text-red-400">PT: <strong>{formatCurrency(r.professional_tax)}</strong></span>
-                          <span>Net: <strong className="text-slate-900 text-sm">{formatCurrency(r.net_salary)}</strong></span>
-                        </div>
-                      ) : ss ? (
+                      {r ? (() => {
+                        // Show the FULL salary structure (entitlement) + LOP, like the payslip — so an
+                        // absent / LOP month still shows the structure, not just ₹0 earned. Net stays the
+                        // actual earned amount: Gross − LOP − PF/ESI/PT.
+                        const fullBasic = parseFloat(ss?.basic_pay) || parseFloat(r.basic_pay) || 0;
+                        const fullHra   = parseFloat(ss?.hra) || parseFloat(r.hra) || 0;
+                        const fullDa    = parseFloat(ss?.da) || parseFloat(r.da) || 0;
+                        const fullGross = ss
+                          ? [ss.basic_pay, ss.hra, ss.da, ss.conveyance, ss.medical, ss.special_allowance].reduce((a, b) => a + (parseFloat(b) || 0), 0)
+                          : (parseFloat(r.gross_salary) || 0);
+                        const lop = parseFloat(r.lop_amount) || 0;
+                        return (
+                          <div className="mt-3 ml-14 flex flex-wrap gap-5 text-xs text-slate-500">
+                            <span>Basic: <strong className="text-slate-700">{formatCurrency(fullBasic)}</strong></span>
+                            <span>HRA: <strong className="text-slate-700">{formatCurrency(fullHra)}</strong></span>
+                            <span>DA: <strong className="text-slate-700">{formatCurrency(fullDa)}</strong></span>
+                            <span>Gross: <strong className="text-emerald-700">{formatCurrency(fullGross)}</strong></span>
+                            {lop > 0 && <span className="text-amber-600">LOP: <strong>−{formatCurrency(lop)}</strong></span>}
+                            <span className="text-red-400">PF: <strong>{formatCurrency(r.pf)}</strong></span>
+                            <span className="text-red-400">ESI: <strong>{formatCurrency(r.esi)}</strong></span>
+                            <span className="text-red-400">PT: <strong>{formatCurrency(r.professional_tax)}</strong></span>
+                            <span>Net: <strong className="text-slate-900 text-sm">{formatCurrency(r.net_salary)}</strong></span>
+                          </div>
+                        );
+                      })() : ss ? (
                         <div className="mt-3 ml-14 flex flex-wrap gap-5 text-xs text-slate-400">
                           <span>Basic: {formatCurrency(ss.basic_pay)}</span>
                           <span>Gross: {formatCurrency([ss.basic_pay,ss.hra,ss.da,ss.conveyance,ss.medical,ss.special_allowance].reduce((a,b)=>a+(parseFloat(b)||0),0))}</span>
