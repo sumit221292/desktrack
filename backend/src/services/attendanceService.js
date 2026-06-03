@@ -41,6 +41,21 @@ const getCompanyTimezone = async (companyId) => {
 const dateInTz = (instant = new Date(), tz = 'Asia/Kolkata') =>
   new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(instant));
 
+// Last instant we have PROOF the employee was present, used when checkout is missing.
+// = the latest of: check-in, any real (closed) session checkout, any break event.
+// An open session contributes nothing (we don't know when they actually left).
+const lastActivityInstant = (checkIn, sessions = [], events = []) => {
+  let t = new Date(checkIn).getTime();
+  for (const s of sessions) {
+    if (s.check_out) t = Math.max(t, new Date(s.check_out).getTime());
+    if (s.check_in) t = Math.max(t, new Date(s.check_in).getTime()); // re-check-in is activity
+  }
+  for (const e of events) {
+    if (e.event_time) t = Math.max(t, new Date(e.event_time).getTime());
+  }
+  return new Date(t);
+};
+
 const getBreakConfig = async (companyId) => {
   try {
     const result = await query(
@@ -55,107 +70,63 @@ const getBreakConfig = async (companyId) => {
 };
 
 /**
- * Auto-close missed checkouts from previous days.
+ * Settle missed checkouts from previous days.
  *
- * Rules:
- * - Auto-close time: 23:59:59 IST (end of that calendar day)
- * - Orphan sessions (never checked out by user): 0 work credit
- * - Only properly checked-out sessions count toward work time
- * - Status: ABSENT if < half shift, HALF DAY if >= half shift
- * - Flag: MISSED_CHECKOUT
+ * A missed checkout is settled at the LAST KNOWN ACTIVITY of that day (latest of
+ * check-in, any real session checkout, any break event / re-check-in) — we only
+ * credit the time we can prove the employee was present, never the whole shift.
+ * Status is HALF DAY or ABSENT (never full present) + MISSED_CHECKOUT flag.
  */
 const closeMissedCheckouts = async (companyId) => {
   try {
     const companyTz = await getCompanyTimezone(companyId);
-    const tzOffset = getTzOffset(companyTz);
     const today = dateInTz(new Date(), companyTz); // current calendar day in company tz (IST)
     const shifts = await query('SELECT * FROM shifts WHERE company_id = $1', [companyId]);
-    const defaultShift = shifts.rows[0] || { shift_end_time: '19:00:00', total_working_hours: 9 };
-    const maxShiftMins = (parseFloat(defaultShift.total_working_hours) || 9) * 60;
+    const shift0 = shifts.rows[0] || { total_working_hours: 9 };
+    const maxShiftMins = (parseFloat(shift0.total_working_hours) || 9) * 60;
+    const brkCfg = await getBreakConfig(companyId);
 
-    // 1. Resolve every session from a previous day. A session must stay within ONE
-    //    calendar day: if it was never checked out, OR it was checked out on a LATER
-    //    day (user forgot and checked out the next day), it is a MISSED checkout →
-    //    close at 23:59:59 of its own day with 0 work credit (never carry hours across
-    //    midnight). Same-day prior sessions are only capped to the shift length.
-    const allSessions = await query('SELECT * FROM attendance_sessions WHERE company_id = $1', [companyId]);
-    for (const sess of allSessions.rows) {
-      const sessDay = dateInTz(sess.check_in, companyTz);
-      if (sessDay >= today) {
-        // Today's session: cap a closed one; leave an open one running.
-        if (sess.check_out) {
-          const dur = parseInt(sess.duration_minutes) || 0;
-          if (dur > maxShiftMins) {
-            await query('UPDATE attendance_sessions SET duration_minutes = $1 WHERE id = $2', [maxShiftMins, sess.id]);
-          }
-        }
-        continue;
-      }
-      const outDay = sess.check_out ? dateInTz(sess.check_out, companyTz) : null;
-      if (!sess.check_out || outDay > sessDay) {
-        // Missed checkout (never closed, or closed on a later day) → 0 work credit.
-        const closeTime = new Date(`${sessDay}T23:59:59${tzOffset}`);
-        await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = 0 WHERE id = $2',
-          [closeTime, sess.id]);
-        console.log(`[AutoClose] Session ${sess.id} from ${sessDay} — missed checkout, closed with 0 credit`);
-      } else {
-        const dur = parseInt(sess.duration_minutes) || 0;
-        if (dur > maxShiftMins) {
-          await query('UPDATE attendance_sessions SET duration_minutes = $1 WHERE id = $2', [maxShiftMins, sess.id]);
-        }
-      }
-    }
-
-    // 2. Close attendance records from before today that have no checkout
-    const allAtt = await query('SELECT * FROM attendance WHERE company_id = $1', [companyId]);
-    for (const rec of allAtt.rows) {
-      if (rec.check_out) continue;
+    // Attendance records from a PREVIOUS day that were never checked out.
+    const open = await query('SELECT * FROM attendance WHERE company_id = $1 AND check_out IS NULL', [companyId]);
+    for (const rec of open.rows) {
       const attDate = rec.check_in ? dateInTz(rec.check_in, companyTz) : null;
-      if (!attDate || attDate >= today) continue;
+      if (!attDate || attDate >= today) continue; // today / still in progress — leave it
 
-      // Close at 23:59:59 IST of that day
-      const checkOutTime = new Date(`${attDate}T23:59:59${tzOffset}`);
+      const sessRes = await query('SELECT * FROM attendance_sessions WHERE attendance_id = $1 ORDER BY check_in', [rec.id]);
+      const evRes = await query('SELECT * FROM attendance_events WHERE attendance_id = $1 ORDER BY event_time', [rec.id]);
+      // Compute last activity BEFORE closing open sessions (open ones prove nothing).
+      const lastAct = lastActivityInstant(rec.check_in, sessRes.rows, evRes.rows);
 
-      // Only count sessions that were PROPERLY checked out by the user (not auto-closed orphans)
-      const sessions = await query('SELECT * FROM attendance_sessions WHERE attendance_id = $1', [rec.id]);
-      let workedMins = 0;
-      for (const s of sessions.rows) {
-        const dur = parseInt(s.duration_minutes) || 0;
-        // Only count sessions with actual duration (orphans have 0)
-        if (dur > 0) workedMins += Math.min(maxShiftMins, dur);
+      // Close any still-open sessions at the last known activity.
+      for (const s of sessRes.rows) {
+        if (s.check_out) continue;
+        const dur = Math.min(maxShiftMins, Math.max(0, Math.ceil((lastAct - new Date(s.check_in)) / 60000)));
+        await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = $2 WHERE id = $3', [lastAct, dur, s.id]);
       }
 
-      const halfShift = maxShiftMins / 2;
-      let status, statusLabel;
-      if (workedMins === 0) {
-        status = 'ABSENT';
-        statusLabel = 'ABSENT';
-      } else if (workedMins < halfShift) {
-        status = 'ABSENT';
-        statusLabel = 'ABSENT';
-      } else {
-        status = 'INCOMPLETE';
-        statusLabel = 'HALFDAY';
-      }
+      const shiftCalc = { ...shift0, company_id: companyId, employee_id: rec.employee_id, timezone: companyTz,
+        lunch_allowed_minutes: brkCfg.lunch_allowed_minutes || 45, tea_allowed_minutes: brkCfg.tea_allowed_minutes || 15 };
+      const { daily_attendance: d } = calculateAttendance(shiftCalc, rec.check_in, lastAct, evRes.rows, sessRes.rows, { missed: true });
 
       await query(
-        `UPDATE attendance SET check_out = $1, last_check_out = $1, status = $2,
-         net_work_minutes = $3, gross_minutes = $3, flags = $4, ai_summary = $5
-         WHERE id = $6 AND company_id = $7`,
-        [checkOutTime, status, workedMins,
-         JSON.stringify(['MISSED_CHECKOUT', statusLabel]),
-         `Checkout missed. Auto-closed at 23:59 IST. Worked: ${workedMins}min. Status: ${statusLabel}.`,
+        `UPDATE attendance SET check_out = $1, last_check_out = $1, gross_minutes = $2, total_break_minutes = $3,
+           net_work_minutes = $4, other_break_minutes = $5, overtime_minutes = $6, status = $7, flags = $8, ai_summary = $9
+         WHERE id = $10 AND company_id = $11`,
+        [lastAct, d.gross_minutes, d.total_break_minutes, d.net_work_minutes, d.other_break_minutes,
+         d.overtime_minutes, d.status, JSON.stringify(d.flags),
+         `Checkout missed. Settled at last activity (${dateInTz(lastAct, companyTz)}). Presence ${d.effective_presence_minutes}min → ${d.day_status}.`,
          rec.id, companyId]
       );
-      console.log(`[AutoClose] Attendance ${rec.id} on ${attDate} — ${statusLabel}, worked=${workedMins}min`);
+      console.log(`[AutoClose] Attendance ${rec.id} on ${attDate} — ${d.day_status}, presence=${d.effective_presence_minutes}min`);
     }
   } catch (e) {
     console.error('[AutoClose] Error:', e.message);
   }
 };
 
-const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = []) => {
+const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [], opts = {}) => {
   if (!checkIn) return { status: 'MISSING_ENTRY', flags: ['NO_CHECK_IN'] };
+  const missedCheckout = !!opts.missed; // checkout never happened; `checkOut` = last known activity
 
   const firstCheckIn = new Date(checkIn);
   const lastCheckOut = checkOut ? new Date(checkOut) : null;
@@ -357,6 +328,27 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
   const shiftDurationMins = (shift.total_working_hours || 0) * 60;
   const overtimeMinutes = Math.max(0, netWorkMinutes - shiftDurationMins);
 
+  // EXCESS break = break taken beyond the allowance. This is what pushes the required
+  // checkout later: the 70-min allowance is INSIDE the shift, so only over-limit break
+  // (and unplanned re-check-in gaps) extend how long the employee must stay.
+  let excessBreakMinutes = otherBreakMinutes;
+  for (const t of breakTypes) excessBreakMinutes += (namedBreakResults[`${t}_excess_minutes`] || 0);
+
+  // EFFECTIVE PRESENCE = time at work counting the allowed break as worked (only the
+  // EXCESS break is subtracted). Completing the full shift duration of effective
+  // presence = staying till the expected checkout (check-in + 9h + excess break).
+  const effectivePresenceMinutes = Math.max(0, grossMinutes - excessBreakMinutes);
+  const expectedCheckoutMinutes = shiftDurationMins + excessBreakMinutes;
+
+  // DAY STATUS (presence-based, NO grace). Only decided once a checkout exists; for a
+  // missed checkout `checkOut` is the last known activity, and it can never be FULL.
+  let dayStatus = null; // 'FULL' | 'HALF DAY' | 'ABSENT' | null (in progress)
+  if (lastCheckOut) {
+    if (effectivePresenceMinutes < shiftDurationMins / 2) dayStatus = 'ABSENT';
+    else if (missedCheckout || effectivePresenceMinutes < shiftDurationMins) dayStatus = 'HALF DAY';
+    else dayStatus = 'FULL';
+  }
+
   // 5. RECORD STATUS
   let status = 'ABSENT';
   if (firstCheckIn && lastCheckOut) {
@@ -370,7 +362,10 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
   // 6. FINAL FLAGS
   if (arrivalStatus === 'late') flags.push('LATE_ARRIVAL');
   if (arrivalStatus === 'overlate') flags.push('OVERLATE_ARRIVAL');
-  if (arrivalStatus === 'halfday') flags.push('HALFDAY');
+  // HALFDAY / ABSENT flags drive payroll → keep them in sync with the day status.
+  if (dayStatus === 'HALF DAY' || arrivalStatus === 'halfday') flags.push('HALFDAY');
+  if (dayStatus === 'ABSENT') flags.push('ABSENT');
+  if (missedCheckout) flags.push('MISSED_CHECKOUT');
   if (overtimeMinutes > 0) flags.push('OVERTIME');
   if (netWorkMinutes > 0 && netWorkMinutes < 240) flags.push('SHORT_DAY');
   if (netWorkMinutes > 720) flags.push('LONG_DAY');
@@ -393,9 +388,14 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
       ...namedBreakResults,
       other_break_minutes: otherBreakMinutes,
       total_break_minutes: totalBreakMinutes,
+      excess_break_minutes: excessBreakMinutes,
       gross_minutes: grossMinutes,
       net_work_minutes: netWorkMinutes,
+      effective_presence_minutes: effectivePresenceMinutes,
+      expected_checkout_minutes: expectedCheckoutMinutes,
       overtime_minutes: overtimeMinutes,
+      day_status: dayStatus,
+      missed_checkout: missedCheckout,
       status,
       flags: [...new Set(flags)],
       ai_summary
@@ -461,10 +461,10 @@ const checkIn = async (userIdOrEmployeeId, companyId, location, manualCheckInTim
   let attendanceId;
   let statusRecord;
 
-  // Auto-close any orphaned open sessions for this employee. A leftover open session
-  // from a PREVIOUS day is a missed checkout → close at the end of that day with 0
-  // credit (never carry worked time across midnight). A same-day leftover is credited
-  // up to the check-in moment, capped to the shift length.
+  // Close only SAME-day leftover open sessions (a re-check-in gap within today),
+  // crediting up to the check-in moment (capped to the shift). Open sessions from a
+  // PREVIOUS day are missed checkouts — leave them for closeMissedCheckouts, which
+  // settles them at that day's last known activity (don't carry hours across midnight).
   const orphanSessions = await query(
     'SELECT id, check_in FROM attendance_sessions WHERE employee_id = $1 AND company_id = $2 AND check_out IS NULL',
     [employeeId, companyId]
@@ -473,13 +473,9 @@ const checkIn = async (userIdOrEmployeeId, companyId, location, manualCheckInTim
     const maxShiftMins = (parseFloat(shift.total_working_hours) || 9) * 60;
     for (const sess of orphanSessions.rows) {
       const sessDay = dateInTz(sess.check_in, tz);
-      if (sessDay < dateStr) {
-        const closeT = new Date(`${sessDay}T23:59:59${getTzOffset(tz)}`);
-        await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = 0 WHERE id = $2', [closeT, sess.id]);
-      } else {
-        const dur = Math.min(maxShiftMins, Math.max(1, Math.ceil((checkInTime - new Date(sess.check_in)) / 60000)));
-        await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = $2 WHERE id = $3', [checkInTime, dur, sess.id]);
-      }
+      if (sessDay < dateStr) continue; // previous day — leave for closeMissedCheckouts
+      const dur = Math.min(maxShiftMins, Math.max(1, Math.ceil((checkInTime - new Date(sess.check_in)) / 60000)));
+      await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = $2 WHERE id = $3', [checkInTime, dur, sess.id]);
     }
   }
 
@@ -593,20 +589,16 @@ const checkOut = async (attendanceId, companyId, manualCheckOutTime) => {
     return { ...record, message: 'Already checked out' };
   }
 
-  // Close every open session. A session opened on a PREVIOUS day is a missed checkout
-  // — close it at the end of its own day with 0 credit instead of crediting hours
-  // across midnight to the wrong day. Same-day sessions are credited (capped to shift).
+  // Close TODAY's open sessions, credited up to the checkout (capped to the shift).
+  // Open sessions from a PREVIOUS day are missed checkouts — leave them for
+  // closeMissedCheckouts (settled at that day's last activity, no cross-midnight credit).
   const coDay = dateInTz(checkOutTime, shift.timezone);
   const coMaxShiftMins = (parseFloat(shift.total_working_hours) || 9) * 60;
   for (const session of openSessions.rows) {
     const sessDay = dateInTz(session.check_in, shift.timezone);
-    if (sessDay < coDay) {
-      const closeT = new Date(`${sessDay}T23:59:59${getTzOffset(shift.timezone)}`);
-      await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = 0 WHERE id = $2', [closeT, session.id]);
-    } else {
-      const durationMinutes = Math.min(coMaxShiftMins, Math.max(1, Math.ceil((checkOutTime - new Date(session.check_in)) / 60000)));
-      await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = $2 WHERE id = $3', [checkOutTime, durationMinutes, session.id]);
-    }
+    if (sessDay < coDay) continue; // previous day — leave for closeMissedCheckouts
+    const durationMinutes = Math.min(coMaxShiftMins, Math.max(1, Math.ceil((checkOutTime - new Date(session.check_in)) / 60000)));
+    await query('UPDATE attendance_sessions SET check_out = $1, duration_minutes = $2 WHERE id = $3', [checkOutTime, durationMinutes, session.id]);
   }
 
   // Auto-end any active breaks (LUNCH/TEA started but not ended)
@@ -854,73 +846,47 @@ const getDailyAttendance = async (companyId, dateStr) => {
       const checkIn = new Date(existing.check_in);
       const lastOut = existing.last_check_out || existing.check_out;
       // If the latest session is still open (re-checked-in after an earlier
-      // checkout), the employee is currently IN. The stale last_check_out must
-      // NOT be treated as a checkout for live break/status calc — otherwise a
-      // break started after re-check-in is never detected as active (it gets
-      // capped at the old checkout time, which is before the break started).
+      // checkout), the employee is currently IN — the stale last_check_out must NOT
+      // be treated as a checkout for live break/status calc.
       const checkOut = (lastOut && !isCheckedIn) ? new Date(lastOut) : null;
 
-      const empSessions = sessions.rows.filter(s => s.employee_id == emp.id);
       const empEvents = events.rows.filter(e => e.employee_id == emp.id);
-      const { daily_attendance } = calculateAttendance({ ...shift, employee_id: emp.id, timezone: companyTz, lunch_allowed_minutes: brkCfg.lunch_allowed_minutes || 45, tea_allowed_minutes: brkCfg.tea_allowed_minutes || 15 }, checkIn, checkOut, empEvents, empSessions);
+      const existingFlags = existing.flags ? (typeof existing.flags === 'string' ? JSON.parse(existing.flags) : existing.flags) : [];
+      // closeMissedCheckouts (run above) flags prior-day missed checkouts and settles
+      // their checkout at the last activity → here `checkOut` IS that last activity.
+      const missedCheckout = existingFlags.includes('MISSED_CHECKOUT');
 
-      // Expected checkout = check-in + shift hours + excess breaks
-      // Excess = (lunch over limit) + (tea over limit) + all other breaks (unplanned gaps)
+      const { daily_attendance } = calculateAttendance({ ...shift, employee_id: emp.id, timezone: companyTz, lunch_allowed_minutes: brkCfg.lunch_allowed_minutes || 45, tea_allowed_minutes: brkCfg.tea_allowed_minutes || 15 }, checkIn, checkOut, empEvents, empSessions, { missed: missedCheckout });
+
       const shiftHrs = parseFloat(shift?.total_working_hours || 9);
+      const shiftMins = shiftHrs * 60;
       const breakMins = daily_attendance.total_break_minutes || 0;
-      const lunchExcess = Math.max(0, (daily_attendance.lunch_actual_minutes || 0) - (brkCfg.lunch_allowed_minutes || 45));
-      const teaExcess = Math.max(0, (daily_attendance.tea_actual_minutes || 0) - (brkCfg.tea_allowed_minutes || 15));
-      const otherBreakMins = daily_attendance.other_break_minutes || 0;
-      const excessBreakMins = lunchExcess + teaExcess + otherBreakMins;
-      const expectedOutISO = new Date(checkIn.getTime() + ((shiftHrs * 60) + excessBreakMins) * 60 * 1000);
+      const excessBreakMins = daily_attendance.excess_break_minutes || 0;
+      // Expected checkout = check-in + shift hours + excess break (extra break pushes it later)
+      const expectedOutISO = new Date(checkIn.getTime() + (daily_attendance.expected_checkout_minutes || shiftMins) * 60000);
 
       // Late minutes: diff between check_in and shift_start_time (IST)
       let lateMinutes = 0;
       if (shift?.shift_start_time) {
         const [sh, sm] = shift.shift_start_time.split(':').map(Number);
-        const dateOnly = checkIn.toISOString().split('T')[0];
-        const shiftStartISO = new Date(`${dateOnly}T${String(sh).padStart(2,'0')}:${String(sm).padStart(2,'0')}:00${getTzOffset(companyTz)}`);
-        if (checkIn > shiftStartISO) {
-          lateMinutes = Math.floor((checkIn - shiftStartISO) / 60000);
-        }
+        const shiftStartISO = new Date(`${dateInTz(checkIn, companyTz)}T${String(sh).padStart(2,'0')}:${String(sm).padStart(2,'0')}:00${getTzOffset(companyTz)}`);
+        if (checkIn > shiftStartISO) lateMinutes = Math.floor((checkIn - shiftStartISO) / 60000);
       }
 
-      // Display status based on arrival
+      // Display status: presence-based day_status decides PRESENT/HALF DAY/ABSENT; a
+      // FULLY completed day is labelled by arrival (ON TIME / LATE / OVER LATE). While
+      // still checked in (no day_status yet) we show the arrival label.
       const arrStatus = daily_attendance.arrival_status || 'on_time';
-      let displayStatus = 'ON TIME';
-      if (arrStatus === 'late') displayStatus = 'LATE';
-      else if (arrStatus === 'overlate') displayStatus = 'OVER LATE';
-      else if (arrStatus === 'halfday') displayStatus = 'HALF DAY';
+      const arrivalLabel = arrStatus === 'late' ? 'LATE' : arrStatus === 'overlate' ? 'OVER LATE' : arrStatus === 'halfday' ? 'HALF DAY' : 'ON TIME';
+      const ds = daily_attendance.day_status; // 'FULL' | 'HALF DAY' | 'ABSENT' | null
+      let displayStatus = arrivalLabel;
+      if (ds === 'ABSENT') displayStatus = 'ABSENT';
+      else if (ds === 'HALF DAY') displayStatus = 'HALF DAY';
 
-      // Missed checkout override: check flags or if no checkout and past expected out
-      const shiftMins = shiftHrs * 60;
-      const existingFlags = existing.flags ? (typeof existing.flags === 'string' ? JSON.parse(existing.flags) : existing.flags) : [];
-      const missedCheckout = existingFlags.includes('MISSED_CHECKOUT') || (!checkOut && !isCheckedIn && new Date() > expectedOutISO);
-
-      // Real worked minutes. For a MISSED checkout the record's checkout is the
-      // 23:59 auto-close, so check-in→checkout would credit the abandoned tail as
-      // work. Instead credit only properly-closed session durations (orphan = 0).
-      const realSessionMins = empSessions.reduce((sum, s) => {
-        const dur = parseInt(s.duration_minutes) || 0;
-        return dur > 0 ? sum + dur : sum;
-      }, 0);
-      const netMins = missedCheckout ? realSessionMins : (daily_attendance.net_work_minutes || 0);
-
-      if (missedCheckout) {
-        if (netMins >= shiftMins / 2) displayStatus = 'HALF DAY';
-        else displayStatus = 'ABSENT';
-      } else if (checkOut && !isCheckedIn) {
-        // Checked out — enforce completion-based status
-        if (netMins < shiftMins / 2) displayStatus = 'ABSENT';
-        else if (netMins < shiftMins) displayStatus = 'HALF DAY';
-        // else keep arrival-based status (ON TIME / LATE / OVER LATE)
-      }
-
-      // Shortfall
-      const shortfallMinutes = netMins < shiftMins ? Math.floor(shiftMins - netMins) : 0;
+      const netMins = daily_attendance.net_work_minutes || 0;
       const grossMins = daily_attendance.gross_minutes || 0;
       const idleMins = Math.max(0, grossMins - netMins - breakMins);
-
+      const shortfallMinutes = netMins < shiftMins ? Math.floor(shiftMins - netMins) : 0;
       const fmtTime = (m) => `${Math.floor(m / 60)}h ${String(Math.floor(m % 60)).padStart(2, '0')}m`;
 
       return {
@@ -932,10 +898,9 @@ const getDailyAttendance = async (companyId, dateStr) => {
         is_checked_in: isCheckedIn,
         name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown',
         role: emp.role,
-        net_work_minutes: netMins,
         workHours: netMins > 0 ? fmtTime(netMins) : (isCheckedIn ? 'In Progress' : '0h 00m'),
         missedCheckout,
-        expectedCheckout: expectedOutISO ? expectedOutISO.toISOString() : '-',
+        expectedCheckout: expectedOutISO.toISOString(),
         lateMinutes,
         displayStatus,
         shortfallMinutes: isCheckedIn ? 0 : shortfallMinutes,
@@ -993,6 +958,8 @@ const getStats = async (companyId, dateStr) => {
  * Returns { employees: [...], days: [...dates], records: { empId: { date: {status, ...} } } }
  */
 const getMonthlyAttendance = async (companyId, month, year) => {
+  // Settle any prior-day missed checkouts first so the calendar uses correct status.
+  await closeMissedCheckouts(companyId);
   const tz = await getCompanyTimezone(companyId);
   const employees = await query('SELECT * FROM employees WHERE company_id = $1', [companyId]);
 
@@ -1077,22 +1044,13 @@ const getMonthlyAttendance = async (companyId, month, year) => {
       const checkIn = new Date(att.check_in);
       const checkOut = att.last_check_out || att.check_out;
 
-      // Determine arrival status
-      let displayStatus = 'PRESENT';
-      if (shift) {
-        const arrStatus = att.arrival_status || '';
-        if (arrStatus === 'late') displayStatus = 'LATE';
-        else if (arrStatus === 'overlate') displayStatus = 'OVER LATE';
-        else if (arrStatus === 'halfday') displayStatus = 'HALF DAY';
-
-        // Missed checkout logic
-        if (!checkOut && dateStr < today) {
-          const shiftHrs = parseFloat(shift.total_working_hours || 9);
-          const shiftMins = shiftHrs * 60;
-          const netMins = att.net_work_minutes || 0;
-          displayStatus = netMins >= shiftMins / 2 ? 'HALF DAY' : 'ABSENT';
-        }
-      }
+      // Status: arrival label, then the presence-based decision from stored flags
+      // (HALFDAY / ABSENT are written by the engine + closeMissedCheckouts).
+      const attFlags = att.flags ? (typeof att.flags === 'string' ? JSON.parse(att.flags) : att.flags) : [];
+      const arrStatus = att.arrival_status || '';
+      let displayStatus = arrStatus === 'late' ? 'LATE' : arrStatus === 'overlate' ? 'OVER LATE' : 'PRESENT';
+      if (attFlags.includes('ABSENT')) displayStatus = 'ABSENT';
+      else if (attFlags.includes('HALFDAY')) displayStatus = 'HALF DAY';
 
       const netMins = att.net_work_minutes || 0;
       const breakMins = att.total_break_minutes || 0;
