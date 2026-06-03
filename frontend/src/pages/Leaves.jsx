@@ -194,8 +194,9 @@ const Leaves = () => {
         ))}
       </div>
 
-      {/* Holidays + Balances side by side so Leave Requests stays in view (less scroll) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      {/* Left column = Holidays + Balances, Right column = Leave Requests → balanced, less scroll */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+      <div className="xl:col-span-5 space-y-6">
       {/* Company Holidays — visible to every user */}
       <Card>
         <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4 px-2">Company Holidays — {currentYear}</h3>
@@ -265,6 +266,7 @@ const Leaves = () => {
       )}
       </div>
 
+      <div className="xl:col-span-7">
       {/* Requests Table */}
       <Card>
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
@@ -330,6 +332,8 @@ const Leaves = () => {
           </div>
         )}
       </Card>
+      </div>
+      </div>
 
       {/* Apply Leave Modal */}
       <Modal isOpen={showApply} onClose={() => setShowApply(false)} title="Apply for Leave">
