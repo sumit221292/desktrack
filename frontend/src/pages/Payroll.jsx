@@ -4,7 +4,7 @@ import {
   Calendar as CalendarIcon, IndianRupee, DollarSign, Euro,
   Users, FileText, Settings, Plus, Edit,
   Trash2, CheckCircle, AlertCircle, X, Upload,
-  Building, Eye, RefreshCw
+  Building, Eye, RefreshCw, SlidersHorizontal
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Card } from '../components/ui/Card';
@@ -1770,8 +1770,16 @@ const Payroll = () => {
                       {/* Label */}
                       <div className="flex-1 min-w-0">
                         <span className={`text-sm font-semibold ${d.enabled ? 'text-slate-800' : 'text-slate-400'}`}>{d.label}</span>
+                        {key === 'tds' && (
+                          <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-600 border border-blue-200 align-middle">AUTO AT PAYROLL</span>
+                        )}
                         {d.condition === 'gross_lt_21000' && d.enabled && preview.gross >= 21000 && (
                           <p className="text-[10px] font-semibold text-amber-600 mt-0.5">Gross &gt; ₹21,000 — not applicable</p>
+                        )}
+                        {key === 'tds' && (
+                          <p className="text-[10px] font-medium text-slate-400 mt-0.5 leading-snug">
+                            TDS is auto-computed at payroll from the employee&apos;s <strong className="text-slate-500">Tax Declaration</strong> (regime / slabs / 87A, projected income). This value is only a fallback when no declaration exists.
+                          </p>
                         )}
                       </div>
 
