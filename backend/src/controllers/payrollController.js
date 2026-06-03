@@ -2,6 +2,77 @@ const { query } = require('../config/db');
 const { getCompanyHolidaySet } = require('../utils/holidays');
 const { dateInTz } = require('../services/attendanceService');
 
+// ─── Income-tax / TDS engine ──────────────────────────────────────────────────
+// Slab tax: bands are contiguous by `to` (first band starts at 0). Mirrors the
+// Tax Declaration UI's calculation exactly.
+const calcTaxFromSlabs = (income, slabs) => {
+  let tax = 0, lower = 0;
+  const sorted = [...(slabs || [])].sort((a, b) => (a.from ?? 0) - (b.from ?? 0));
+  for (const slab of sorted) {
+    if (income <= lower) break;
+    const cap = (slab.to === null || slab.to === undefined) ? income : Math.min(income, slab.to);
+    if (cap > lower) tax += Math.round((cap - lower) * ((slab.rate || 0) / 100));
+    lower = (slab.to === null || slab.to === undefined) ? income : slab.to;
+  }
+  return tax;
+};
+
+// Annual income tax from a tax declaration: std deduction (+ 80C/80D/… for Old),
+// slab tax, Section 87A rebate (New ≤₹12L → nil, Old ≤₹5L → nil) and cess.
+const computeAnnualTax = (annualGross, decl) => {
+  const regime = decl.regime || 'new';
+  const stdDed = regime === 'new' ? (parseFloat(decl.std_deduction_new) || 0) : (parseFloat(decl.std_deduction_old) || 0);
+  const totalDed = regime === 'old'
+    ? stdDed + ['sec80c', 'sec80d', 'sec80g', 'sec80e', 'hra_claimed', 'lta', 'nps', 'other_deductions'].reduce((s, k) => s + (parseFloat(decl[k]) || 0), 0)
+    : stdDed;
+  const taxable = Math.max(0, annualGross - totalDed);
+  const slabsJson = typeof decl.slabs_json === 'string' ? JSON.parse(decl.slabs_json || '{}') : (decl.slabs_json || {});
+  const taxSlab = calcTaxFromSlabs(taxable, slabsJson[regime]);
+  const rebateLimit = regime === 'new' ? 1200000 : 500000;
+  const rebateCap = regime === 'new' ? 60000 : 12500;
+  const rebate = taxable <= rebateLimit ? Math.min(taxSlab, rebateCap) : 0;
+  const afterRebate = Math.max(0, taxSlab - rebate);
+  const cess = Math.round(afterRebate * ((parseFloat(decl.cess_rate) || 0) / 100));
+  return { taxableIncome: taxable, annualTax: afterRebate + cess };
+};
+
+// Indian FY month order: April = 0 … March = 11.
+const fyMonthIndex = (m) => (m >= 4 ? m - 4 : m + 8);
+
+// Monthly TDS = (projected annual tax − TDS already deducted this FY) ÷ remaining
+// months, never more than the month's net payable. Auto-revises as income (LOP)
+// changes. Returns null if the employee has no tax declaration (→ caller falls
+// back to the structure's configured TDS).
+const computeMonthlyTDS = async ({ companyId, employeeId, month, year, fullMonthlyGross, earnedThisMonth, otherDeductions }) => {
+  const fyStartYear = month >= 4 ? year : year - 1;
+  const fy = `${fyStartYear}-${String((fyStartYear + 1) % 100).padStart(2, '0')}`;
+  let decl = (await query('SELECT * FROM tax_declarations WHERE employee_id=$1 AND company_id=$2 AND financial_year=$3', [employeeId, companyId, fy])).rows[0];
+  if (!decl) decl = (await query('SELECT * FROM tax_declarations WHERE employee_id=$1 AND company_id=$2 ORDER BY updated_at DESC LIMIT 1', [employeeId, companyId])).rows[0];
+  if (!decl) return null;
+
+  const idx = fyMonthIndex(parseInt(month));
+  const remainingIncl = 12 - idx;   // months left in FY incl. this one
+  const remainingAfter = 11 - idx;  // months after this one
+
+  // YTD this FY (months BEFORE this one): earned gross + TDS already deducted
+  const recs = (await query(
+    `SELECT month, gross_salary, tds FROM payroll_records WHERE employee_id=$1 AND company_id=$2
+       AND ((year=$3 AND month>=4) OR (year=$4 AND month<=3))`,
+    [employeeId, companyId, fyStartYear, fyStartYear + 1]
+  )).rows;
+  let ytdGross = 0, ytdTds = 0;
+  for (const rr of recs) {
+    if (fyMonthIndex(parseInt(rr.month)) < idx) { ytdGross += parseFloat(rr.gross_salary) || 0; ytdTds += parseFloat(rr.tds) || 0; }
+  }
+
+  // Projected annual gross = already-earned + this month + full salary for the rest
+  const projectedAnnualGross = ytdGross + (earnedThisMonth || 0) + (fullMonthlyGross || 0) * remainingAfter;
+  const { annualTax } = computeAnnualTax(projectedAnnualGross, decl);
+  let monthlyTds = Math.max(0, Math.round((annualTax - ytdTds) / remainingIncl));
+  const cap = Math.max(0, (earnedThisMonth || 0) - (otherDeductions || 0)); // never exceed net payable
+  return Math.min(monthlyTds, cap);
+};
+
 // ── Salary Structures ────────────────────────────────────────────────────────
 
 const getSalaryStructures = async (req, res) => {
@@ -384,7 +455,7 @@ const runPayroll = async (req, res) => {
       const pf = calcDeduction(configuredDeductions.pf || { enabled: true, type: 'percent', value: 12, base: 'basic' });
       const esi = calcDeduction(configuredDeductions.esi || { enabled: true, type: 'percent', value: 0.75, base: 'gross', condition: 'gross_lt_21000' });
       const professional_tax = calcDeduction(configuredDeductions.pt || { enabled: true, type: 'fixed', value: 200 });
-      const tds = calcDeduction(configuredDeductions.tds || { enabled: false, type: 'fixed', value: 0 });
+      const configuredTds = calcDeduction(configuredDeductions.tds || { enabled: false, type: 'fixed', value: 0 });
 
       // Custom deductions total
       let customDedTotal = 0;
@@ -393,6 +464,16 @@ const runPayroll = async (req, res) => {
         if (cd.type === 'percent') customDedTotal += Math.round(earnedGross * val / 100 * 100) / 100;
         else customDedTotal += earnedGross > 0 ? val : 0;
       });
+
+      // TDS: auto-computed from projected annual income + the employee's tax declaration
+      // (regime/slabs/87A/cess), spread over remaining FY months, capped at net payable.
+      // Falls back to the structure's configured TDS if there's no tax declaration.
+      const autoTds = await computeMonthlyTDS({
+        companyId, employeeId: emp.id, month: parseInt(month), year: parseInt(year),
+        fullMonthlyGross: fullGross, earnedThisMonth: earnedGross,
+        otherDeductions: pf + esi + professional_tax + customDedTotal
+      });
+      const tds = autoTds !== null ? autoTds : configuredTds;
 
       const total_deductions = Math.round((pf + esi + professional_tax + tds + customDedTotal) * 100) / 100;
       const net_salary = Math.round((earnedGross - total_deductions) * 100) / 100;
@@ -719,5 +800,6 @@ module.exports = {
   getPayrollRecords, getPayrollHistory, runPayroll, updatePayrollRecord, getPayslip,
   getForm16List, uploadForm16, deleteForm16,
   getTaxDeclarations, upsertTaxDeclaration,
-  getPayrollSummary
+  getPayrollSummary,
+  computeAnnualTax, computeMonthlyTDS // exported for tests
 };
