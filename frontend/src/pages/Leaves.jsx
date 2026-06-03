@@ -194,6 +194,8 @@ const Leaves = () => {
         ))}
       </div>
 
+      {/* Holidays + Balances side by side so Leave Requests stays in view (less scroll) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
       {/* Company Holidays — visible to every user */}
       <Card>
         <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4 px-2">Company Holidays — {currentYear}</h3>
@@ -204,7 +206,7 @@ const Leaves = () => {
             .sort((a, b) => a.date.localeCompare(b.date));
           if (list.length === 0) return <p className="px-2 text-sm text-slate-400 italic">No company holidays set for {currentYear}.</p>;
           return (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {list.map(h => {
                 const d = new Date(h.date + 'T00:00:00');
                 const past = h.date < todayISO;
@@ -261,6 +263,7 @@ const Leaves = () => {
           </div>
         </Card>
       )}
+      </div>
 
       {/* Requests Table */}
       <Card>

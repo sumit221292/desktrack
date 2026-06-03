@@ -51,14 +51,21 @@ const deleteLeaveType = async (req, res) => {
 // ─── Leave Requests ───
 const getLeaveRequests = async (req, res) => {
   try {
-    const result = await query(
-      `SELECT lr.*, e.first_name, e.last_name, lt.name as leave_type_name, lt.code as leave_type_code
+    // Only SUPER_ADMIN / HR see everyone; everyone else sees ONLY their own requests.
+    const privileged = ['SUPER_ADMIN', 'HR'].includes(req.user.role);
+    let sql = `SELECT lr.*, e.first_name, e.last_name, lt.name as leave_type_name, lt.code as leave_type_code
        FROM leave_requests lr
        LEFT JOIN employees e ON lr.employee_id = e.id
        LEFT JOIN leave_types lt ON lr.leave_type_id = lt.id
-       WHERE lr.company_id = $1 ORDER BY lr.created_at DESC`,
-      [req.tenantId]
-    );
+       WHERE lr.company_id = $1`;
+    const p = [req.tenantId];
+    if (!privileged) {
+      const emp = await query('SELECT id FROM employees WHERE email = (SELECT email FROM users WHERE id = $1) AND company_id = $2', [req.user.id, req.tenantId]);
+      sql += ` AND lr.employee_id = $2`;
+      p.push(emp.rows[0]?.id || -1);
+    }
+    sql += ' ORDER BY lr.created_at DESC';
+    const result = await query(sql, p);
     const rows = result.rows.map(r => ({
       ...r,
       employee_name: r.employee_name || `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'Unknown'
@@ -158,8 +165,14 @@ const reviewLeave = async (req, res) => {
 // ─── Leave Balances ───
 const getLeaveBalances = async (req, res) => {
   const year = req.query.year || new Date().getFullYear();
-  const employeeId = req.query.employee_id;
+  let employeeId = req.query.employee_id;
   try {
+    // Non-privileged users may only see their OWN balances (ignore any employee_id param).
+    const privileged = ['SUPER_ADMIN', 'HR'].includes(req.user.role);
+    if (!privileged) {
+      const emp = await query('SELECT id FROM employees WHERE email = (SELECT email FROM users WHERE id = $1) AND company_id = $2', [req.user.id, req.tenantId]);
+      employeeId = emp.rows[0]?.id || -1;
+    }
     let sql = `SELECT lb.*, lt.name as leave_type_name, lt.code as leave_type_code, e.first_name, e.last_name
                FROM leave_balances lb
                LEFT JOIN leave_types lt ON lb.leave_type_id = lt.id
