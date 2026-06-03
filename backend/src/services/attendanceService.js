@@ -304,27 +304,15 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
     if (breakRecords.length > 3) flags.push('MULTIPLE_BREAKS');
   }
 
-  // 4. WORK TIME (use Math.ceil to count partial minutes, minimum 1 min if any work done)
+  // 4. WORK TIME — gross = time from first check-in to checkout (or to NOW while still
+  // checked in), measured to the SECOND and rounded ONCE. Re-check-in gaps are taken
+  // out as breaks below, so rapid / sub-minute sessions never each inflate to a full
+  // minute (which made the modal read higher than the live timer).
   const totalBreakMinutes = totalNamedBreakMinutes + otherBreakMinutes;
-  let grossMinutes = 0;
-  if (lastCheckOut) {
-    grossMinutes = Math.ceil((lastCheckOut - firstCheckIn) / 60000);
-  }
-  // Fallback: compute from sessions if gross is 0 but sessions exist
-  // IMPORTANT: duration_minutes = 0 means orphan session (no checkout by user) — skip it
-  if (grossMinutes <= 0 && sessions.length > 0) {
-    grossMinutes = sessions.reduce((sum, s) => {
-      const dur = parseInt(s.duration_minutes) || 0;
-      if (dur > 0) return sum + dur; // Only count sessions with real duration
-      if (s.check_in && s.check_out && dur === 0) return sum; // Orphan session — no credit
-      if (s.check_in && s.check_out) {
-        return sum + Math.max(1, Math.ceil((new Date(s.check_out) - new Date(s.check_in)) / 60000));
-      }
-      return sum;
-    }, 0);
-  }
+  const endMs = lastCheckOut ? lastCheckOut.getTime() : (sessions.length > 0 ? Date.now() : null);
+  const grossMinutes = endMs ? Math.max(0, Math.floor((endMs - firstCheckIn.getTime()) / 60000)) : 0;
 
-  const netWorkMinutes = grossMinutes - totalBreakMinutes;
+  const netWorkMinutes = Math.max(0, grossMinutes - totalBreakMinutes);
   const shiftDurationMins = (shift.total_working_hours || 0) * 60;
   const overtimeMinutes = Math.max(0, netWorkMinutes - shiftDurationMins);
 
