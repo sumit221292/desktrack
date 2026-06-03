@@ -33,6 +33,26 @@ const STATUS_MAP = {
   HOLD:      { label: 'On Hold',   variant: 'default' },
 };
 
+// Columns shown in the Payroll Records summary row. Each is independently
+// toggleable from the "Columns" menu; the choice persists in localStorage.
+// `get(r, ss)` pulls the value (full salary structure first, then the record).
+const PAYROLL_COLS = [
+  { key: 'basic',         label: 'Basic',                   valCls: 'text-slate-700',          get: (r, ss) => parseFloat(ss?.basic_pay) || parseFloat(r?.basic_pay) || 0 },
+  { key: 'hra',           label: 'HRA',                     valCls: 'text-slate-700',          get: (r, ss) => parseFloat(ss?.hra) || parseFloat(r?.hra) || 0 },
+  { key: 'special',       label: 'Special Allowance',       valCls: 'text-slate-700',          get: (r, ss) => parseFloat(ss?.special_allowance) || parseFloat(r?.special_allowance) || 0 },
+  { key: 'medical',       label: 'Medical Allowance',       valCls: 'text-slate-700',          get: (r, ss) => parseFloat(ss?.medical) || parseFloat(r?.medical) || 0 },
+  { key: 'telephone',     label: 'Telephone Allowance',     valCls: 'text-slate-700',          get: (r, ss) => parseFloat(ss?.conveyance) || parseFloat(r?.conveyance) || 0 },
+  { key: 'entertainment', label: 'Entertainment Allowance', valCls: 'text-slate-700',          get: (r, ss) => parseFloat(ss?.da) || parseFloat(r?.da) || 0 },
+  { key: 'gross',         label: 'Gross',                   valCls: 'text-emerald-700',        get: (r, ss) => ss ? [ss.basic_pay, ss.hra, ss.da, ss.conveyance, ss.medical, ss.special_allowance].reduce((a, b) => a + (parseFloat(b) || 0), 0) : (parseFloat(r?.gross_salary) || 0) },
+  { key: 'lop',           label: 'LOP',                     spanCls: 'text-amber-600', neg: true, get: (r) => parseFloat(r?.lop_amount) || 0 },
+  { key: 'pf',            label: 'PF',                      spanCls: 'text-red-400',           get: (r) => parseFloat(r?.pf) || 0 },
+  { key: 'esi',           label: 'ESI',                     spanCls: 'text-red-400',           get: (r) => parseFloat(r?.esi) || 0 },
+  { key: 'pt',            label: 'PT',                      spanCls: 'text-red-400',           get: (r) => parseFloat(r?.professional_tax) || 0 },
+  { key: 'net',           label: 'Net',                     valCls: 'text-slate-900 text-sm',  get: (r) => parseFloat(r?.net_salary) || 0 },
+];
+// Default visible set (matches the company payslip's meaningful components).
+const DEFAULT_PAYROLL_COLS = ['basic', 'hra', 'special', 'gross', 'lop', 'pf', 'esi', 'pt', 'net'];
+
 // ─── Salary Slip Print Component ────────────────────────────────────────────
 const fmtDate = (s) => {
   if (!s) return '—';
@@ -280,6 +300,21 @@ const Payroll = () => {
   const [taxDeclEmpId,   setTaxDeclEmpId]   = useState(null);
   const [selectedEmpsForRun, setSelectedEmpsForRun] = useState({});
   const [editingSlabs,   setEditingSlabs]   = useState(false);
+  const [showColsMenu,   setShowColsMenu]   = useState(false);
+  // Which summary columns are visible in Payroll Records — persisted per browser.
+  const [visibleCols,    setVisibleCols]    = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('payrollSummaryCols') || 'null');
+      if (saved && typeof saved === 'object') {
+        // Merge so any newly-added column key still gets a sensible default.
+        return PAYROLL_COLS.reduce((acc, c) => ({ ...acc, [c.key]: c.key in saved ? !!saved[c.key] : DEFAULT_PAYROLL_COLS.includes(c.key) }), {});
+      }
+    } catch (_) {}
+    return PAYROLL_COLS.reduce((acc, c) => ({ ...acc, [c.key]: DEFAULT_PAYROLL_COLS.includes(c.key) }), {});
+  });
+  useEffect(() => {
+    try { localStorage.setItem('payrollSummaryCols', JSON.stringify(visibleCols)); } catch (_) {}
+  }, [visibleCols]);
 
   // helpers
   const getTaxDecl = (empId) => taxDeclMap[empId] || DEFAULT_TAX_DECL();
@@ -738,6 +773,28 @@ const Payroll = () => {
             </div>
             <div className="flex items-center gap-2">
               <Input icon={Search} placeholder="Search employee..." value={search} onChange={e => setSearch(e.target.value)} className="bg-slate-50 max-w-xs" />
+              {/* Column visibility toggle */}
+              <div className="relative">
+                <Button variant="secondary" size="sm" onClick={() => setShowColsMenu(v => !v)} className="gap-2">
+                  <SlidersHorizontal size={14} /> Columns
+                </Button>
+                {showColsMenu && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowColsMenu(false)} />
+                    <div className="absolute right-0 mt-2 w-60 bg-white border border-slate-200 rounded-xl shadow-xl z-20 p-2 max-h-96 overflow-y-auto">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1.5">Show fields in summary</p>
+                      {PAYROLL_COLS.map(c => (
+                        <label key={c.key} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer">
+                          <input type="checkbox" checked={!!visibleCols[c.key]}
+                            onChange={e => setVisibleCols(p => ({ ...p, [c.key]: e.target.checked }))}
+                            className="rounded border-slate-300 text-primary-600 focus:ring-2 focus:ring-primary-500/30" />
+                          <span className="text-sm font-medium text-slate-700">{c.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
               <Button variant="secondary" size="sm" onClick={fetchAll} className="gap-2">
                 <RefreshCw size={14} /> Refresh
               </Button>
@@ -796,31 +853,22 @@ const Payroll = () => {
                         </div>
                       </div>
                       {/* Detail row */}
-                      {r ? (() => {
+                      {r ? (
                         // Show the FULL salary structure (entitlement) + LOP, like the payslip — so an
                         // absent / LOP month still shows the structure, not just ₹0 earned. Net stays the
-                        // actual earned amount: Gross − LOP − PF/ESI/PT.
-                        const fullBasic = parseFloat(ss?.basic_pay) || parseFloat(r.basic_pay) || 0;
-                        const fullHra   = parseFloat(ss?.hra) || parseFloat(r.hra) || 0;
-                        const fullDa    = parseFloat(ss?.da) || parseFloat(r.da) || 0;
-                        const fullGross = ss
-                          ? [ss.basic_pay, ss.hra, ss.da, ss.conveyance, ss.medical, ss.special_allowance].reduce((a, b) => a + (parseFloat(b) || 0), 0)
-                          : (parseFloat(r.gross_salary) || 0);
-                        const lop = parseFloat(r.lop_amount) || 0;
-                        return (
-                          <div className="mt-3 ml-14 flex flex-wrap gap-5 text-xs text-slate-500">
-                            <span>Basic: <strong className="text-slate-700">{formatCurrency(fullBasic)}</strong></span>
-                            <span>HRA: <strong className="text-slate-700">{formatCurrency(fullHra)}</strong></span>
-                            <span>Entertainment Allowance: <strong className="text-slate-700">{formatCurrency(fullDa)}</strong></span>
-                            <span>Gross: <strong className="text-emerald-700">{formatCurrency(fullGross)}</strong></span>
-                            {lop > 0 && <span className="text-amber-600">LOP: <strong>−{formatCurrency(lop)}</strong></span>}
-                            <span className="text-red-400">PF: <strong>{formatCurrency(r.pf)}</strong></span>
-                            <span className="text-red-400">ESI: <strong>{formatCurrency(r.esi)}</strong></span>
-                            <span className="text-red-400">PT: <strong>{formatCurrency(r.professional_tax)}</strong></span>
-                            <span>Net: <strong className="text-slate-900 text-sm">{formatCurrency(r.net_salary)}</strong></span>
-                          </div>
-                        );
-                      })() : ss ? (
+                        // actual earned amount: Gross − LOP − PF/ESI/PT. Which fields appear here is
+                        // controlled by the "Columns" toggle (persisted per browser).
+                        <div className="mt-3 ml-14 flex flex-wrap gap-5 text-xs text-slate-500">
+                          {PAYROLL_COLS.filter(c => visibleCols[c.key]).map(c => {
+                            const val = c.get(r, ss);
+                            return (
+                              <span key={c.key} className={c.spanCls || ''}>
+                                {c.label}: <strong className={c.valCls || ''}>{c.neg && val > 0 ? '−' : ''}{formatCurrency(val)}</strong>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      ) : ss ? (
                         <div className="mt-3 ml-14 flex flex-wrap gap-5 text-xs text-slate-400">
                           <span>Basic: {formatCurrency(ss.basic_pay)}</span>
                           <span>Gross: {formatCurrency([ss.basic_pay,ss.hra,ss.da,ss.conveyance,ss.medical,ss.special_allowance].reduce((a,b)=>a+(parseFloat(b)||0),0))}</span>
