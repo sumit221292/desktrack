@@ -1028,6 +1028,35 @@ const getMonthlyAttendance = async (companyId, month, year) => {
     [companyId, startDate, endDate, tz]
   );
 
+  // Break events and work sessions for the whole month, matched on the IST calendar day.
+  // The calendar recomputes work/break time with the SAME engine the daily/live view uses
+  // (calculateAttendance) instead of reading the stored net_work_minutes/total_break_minutes
+  // columns — those are only written at check-out/edit (0 at check-in), so an in-progress
+  // day would otherwise show 0h while Dashboard/Attendance show live hours.
+  const monthEvents = await query(
+    `SELECT * FROM attendance_events WHERE company_id = $1
+       AND (event_time AT TIME ZONE 'UTC' AT TIME ZONE $4)::date BETWEEN $2::date AND $3::date`,
+    [companyId, startDate, endDate, tz]
+  );
+  const monthSessions = await query(
+    `SELECT * FROM attendance_sessions WHERE company_id = $1
+       AND (check_in AT TIME ZONE 'UTC' AT TIME ZONE $4)::date BETWEEN $2::date AND $3::date`,
+    [companyId, startDate, endDate, tz]
+  );
+
+  // Group this month's sessions/events by employee + IST day for O(1) lookup in the loop
+  // below (avoids re-running dateInTz per emp × day × row).
+  const sessionsByEmpDay = {};
+  for (const s of monthSessions.rows) {
+    const k = `${s.employee_id}|${dateInTz(s.check_in, tz)}`;
+    (sessionsByEmpDay[k] = sessionsByEmpDay[k] || []).push(s);
+  }
+  const eventsByEmpDay = {};
+  for (const e of monthEvents.rows) {
+    const k = `${e.employee_id}|${dateInTz(e.event_time, tz)}`;
+    (eventsByEmpDay[k] = eventsByEmpDay[k] || []).push(e);
+  }
+
   // Get shift info
   const shifts = await query('SELECT * FROM shifts WHERE company_id = $1', [companyId]);
   const shift = shifts.rows[0];
@@ -1094,8 +1123,8 @@ const getMonthlyAttendance = async (companyId, month, year) => {
         continue;
       }
 
-      const checkIn = new Date(att.check_in);
-      const checkOut = att.last_check_out || att.check_out;
+      const checkInDate = new Date(att.check_in);
+      const lastOut = att.last_check_out || att.check_out;
 
       // Status: arrival label, then the presence-based decision from stored flags
       // (HALFDAY / ABSENT are written by the engine + closeMissedCheckouts).
@@ -1105,17 +1134,34 @@ const getMonthlyAttendance = async (companyId, month, year) => {
       if (attFlags.includes('ABSENT')) displayStatus = 'ABSENT';
       else if (attFlags.includes('HALFDAY')) displayStatus = 'HALF DAY';
 
-      const netMins = att.net_work_minutes || 0;
-      const breakMins = att.total_break_minutes || 0;
+      // Recompute work/break time LIVE from this day's sessions + events (same engine and
+      // inputs as getDailyAttendance) so the calendar matches the Dashboard/Attendance views.
+      const dayKey = `${emp.id}|${dateStr}`;
+      const empDaySessions = sessionsByEmpDay[dayKey] || [];
+      const empDayEvents = eventsByEmpDay[dayKey] || [];
+      const isCheckedIn = empDaySessions.some(s => s.check_out === null || s.check_out === undefined);
+      // If the latest session is still open, the stale last_check_out must NOT be treated as
+      // a checkout (employee is currently IN) — mirrors getDailyAttendance.
+      const checkOutDate = (lastOut && !isCheckedIn) ? new Date(lastOut) : null;
+      const missedCheckout = attFlags.includes('MISSED_CHECKOUT');
+
+      const { daily_attendance } = calculateAttendance(
+        { ...shift, employee_id: emp.id, timezone: companyTz, lunch_allowed_minutes: brkCfg.lunch_allowed_minutes || 45, tea_allowed_minutes: brkCfg.tea_allowed_minutes || 15 },
+        checkInDate, checkOutDate, empDayEvents, empDaySessions, { missed: missedCheckout }
+      );
+
+      const netMins = daily_attendance.net_work_minutes || 0;
+      const breakMins = daily_attendance.total_break_minutes || 0;
       const fmtTime = (m) => `${Math.floor(m / 60)}h ${String(Math.floor(m % 60)).padStart(2, '0')}m`;
 
       records[emp.id][dateStr] = {
         status: displayStatus,
-        check_in: checkIn.toISOString(),
-        check_out: checkOut || null,
+        check_in: checkInDate.toISOString(),
+        check_out: lastOut || null,
+        is_checked_in: isCheckedIn,
         net_work_minutes: netMins,
         total_break_minutes: breakMins,
-        workHours: fmtTime(netMins),
+        workHours: netMins > 0 ? fmtTime(netMins) : (isCheckedIn ? 'In Progress' : '0h 00m'),
         breakTime: fmtTime(breakMins),
         remarks: att.remarks || '',
         arrival_status: att.arrival_status || 'on_time'
