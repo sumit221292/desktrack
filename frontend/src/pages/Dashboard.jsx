@@ -62,18 +62,25 @@ const fmtHMS = (totalSecs) => {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 };
 
-const DashboardLiveTimer = ({ checkIn, breakSecs = 0, isLive, netSecs = 0 }) => {
-  const [display, setDisplay] = useState('');
+// Live work timer. Work = time actually checked in (sum of sessions, open one → now)
+// minus break time. Computed from raw timestamps every second, so re-check-in gaps
+// (any length) are excluded and work pauses during a break — matches the modal exactly.
+const DashboardLiveTimer = ({ sessions = [], breaks = { LUNCH: [], TEA: [] }, isLive, fallbackSecs = 0 }) => {
+  const [display, setDisplay] = useState('00:00:00');
   useEffect(() => {
-    if (!isLive) { setDisplay(fmtHMS(netSecs)); return; }
-    const tick = () => {
-      const elapsed = Math.floor((Date.now() - new Date(checkIn).getTime()) / 1000) - (breakSecs || 0);
-      setDisplay(fmtHMS(elapsed));
+    const sb = (a, b) => a ? Math.max(0, Math.floor((new Date(b || Date.now()).getTime() - new Date(a).getTime()) / 1000)) : 0;
+    const compute = () => {
+      if (!sessions.length) return fallbackSecs || 0;
+      const work = sessions.reduce((s, x) => s + sb(x.check_in, x.check_out), 0);
+      const brk = [...(breaks.LUNCH || []), ...(breaks.TEA || [])].reduce((s, b) => s + sb(b.start, b.end), 0);
+      return Math.max(0, work - brk);
     };
+    const tick = () => setDisplay(fmtHMS(compute()));
     tick();
-    const id = setInterval(tick, 1000); // tick every second
+    if (!isLive) return; // checked out → sessions are closed, value is stable
+    const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [checkIn, breakSecs, isLive, netSecs]);
+  }, [sessions, breaks, isLive, fallbackSecs]);
   return <>{display}</>;
 };
 
@@ -203,6 +210,8 @@ const Dashboard = () => {
   const [activityDetail, setActivityDetail] = useState(null);
   const [activityHistory, setActivityHistory] = useState({ sessions: [], breaks: { LUNCH: [], TEA: [] } });
   const [modalTick, setModalTick] = useState(0);
+  // Current user's own sessions+breaks — feeds the live WORKING timer (session-based).
+  const [myActivity, setMyActivity] = useState({ sessions: [], breaks: { LUNCH: [], TEA: [] } });
 
   // Fetch full activity history when modal opens
   useEffect(() => {
@@ -452,6 +461,17 @@ const Dashboard = () => {
     return () => clearInterval(id);
   }, [selectedDate, isEmployee, user, isCheckedIn, onLunch, onTea]);
 
+  // Keep the current user's own sessions/breaks fresh for the live WORKING timer.
+  useEffect(() => {
+    if (selectedDate !== todayStr() || !myAttendance?.id) return;
+    const load = () => api.get(`/attendance/${myAttendance.id}/activity`)
+      .then(res => setMyActivity(res.data || { sessions: [], breaks: { LUNCH: [], TEA: [] } }))
+      .catch(() => {});
+    load();
+    const id = setInterval(load, 5000);
+    return () => clearInterval(id);
+  }, [myAttendance?.id, selectedDate, isCheckedIn, onLunch, onTea]);
+
   const handleCheckInOut = () => {
     toggleCheckIn();
   };
@@ -536,7 +556,7 @@ const Dashboard = () => {
                 <div className="text-center min-w-[70px]">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Working</p>
                   <p className="text-lg font-bold text-blue-600 font-mono">
-                    <DashboardLiveTimer checkIn={myAttendance.check_in} breakSecs={myAttendance.total_break_seconds || 0} isLive={myAttendance.is_checked_in} netSecs={myAttendance.net_work_seconds || 0} />
+                    <DashboardLiveTimer sessions={myActivity.sessions} breaks={myActivity.breaks} isLive={myAttendance.is_checked_in} fallbackSecs={myAttendance.net_work_seconds || 0} />
                   </p>
                 </div>
                 <div className="w-px h-12 bg-slate-200" />

@@ -340,7 +340,18 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
   }
   const grossSeconds = endMs ? Math.max(0, Math.floor((endMs - firstCheckIn.getTime()) / 1000)) : 0;
   const totalBreakSeconds = Math.round(totalNamedBreakSeconds) + otherBreakSeconds;
-  const netWorkSeconds = Math.max(0, grossSeconds - totalBreakSeconds);
+  // WORK = time actually checked in (sum of every session, open one → now) minus named
+  // breaks. Re-check-in GAPS (any length, incl. a few seconds) are not in any session,
+  // so a brief checkout never leaks into work time.
+  let sessionSeconds = 0;
+  for (const s of sessions) {
+    if (!s.check_in) continue;
+    const inMs = new Date(s.check_in).getTime();
+    const outMs = s.check_out ? new Date(s.check_out).getTime() : (lastCheckOut ? lastCheckOut.getTime() : _nowMs);
+    if (outMs > inMs) sessionSeconds += (outMs - inMs) / 1000;
+  }
+  if (!sessions.length && endMs) sessionSeconds = Math.max(0, (endMs - firstCheckIn.getTime()) / 1000);
+  const netWorkSeconds = Math.max(0, Math.floor(sessionSeconds - Math.round(totalNamedBreakSeconds)));
   const shiftDurationMins = (shift.total_working_hours || 0) * 60;
   const overtimeMinutes = Math.max(0, netWorkMinutes - shiftDurationMins);
 
