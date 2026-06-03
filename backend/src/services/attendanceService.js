@@ -332,8 +332,15 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
     const es = events.filter(e => e.event_type === `${tu}_END`).map(e => new Date(e.event_time).getTime()).sort((a, b) => a - b);
     let secs = 0;
     for (let i = 0; i < ss.length; i++) {
-      const end = es[i] != null ? es[i] : (lastCheckOut ? lastCheckOut.getTime() : _nowMs);
-      if (end > ss[i]) secs += (end - ss[i]) / 1000;
+      if (i < es.length) {
+        if (es[i] > ss[i]) secs += (es[i] - ss[i]) / 1000; // completed pair
+      } else {
+        // First unmatched START = the ONE active break (up to checkout/now). Any further
+        // duplicate STARTs are ignored so an active break is never counted more than once.
+        const end = lastCheckOut ? lastCheckOut.getTime() : _nowMs;
+        if (end > ss[i]) secs += (end - ss[i]) / 1000;
+        break;
+      }
     }
     namedBreakResults[`${t}_actual_seconds`] = Math.round(secs);
     totalNamedBreakSeconds += secs;
@@ -816,11 +823,27 @@ const logEvent = async (userIdOrEmployeeId, companyId, eventType, eventTime) => 
 
   const attendanceId = attResult.rows[0].id;
 
+  // Idempotent break toggling: never allow two START without an END (or vice-versa),
+  // which would create multiple "active" breaks and make work-time double-subtract.
+  const ev = eventType.toUpperCase();
+  const baseType = ev.replace(/_START$|_END$/, '');
+  const isStart = ev.endsWith('_START');
+  const cnt = await query(
+    `SELECT
+       COUNT(*) FILTER (WHERE event_type = $3) AS starts,
+       COUNT(*) FILTER (WHERE event_type = $4) AS ends
+     FROM attendance_events WHERE attendance_id = $1 AND company_id = $2`,
+    [attendanceId, companyId, `${baseType}_START`, `${baseType}_END`]
+  );
+  const open = (parseInt(cnt.rows[0].starts) || 0) - (parseInt(cnt.rows[0].ends) || 0);
+  if (isStart && open > 0) return { ignored: true, message: `Already on ${baseType.toLowerCase()} break` };
+  if (!isStart && open <= 0) return { ignored: true, message: `Not on ${baseType.toLowerCase()} break` };
+
   // Log Event
   const result = await query(
     `INSERT INTO attendance_events (company_id, employee_id, attendance_id, event_type, event_time)
      VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [companyId, employeeId, attendanceId, eventType.toUpperCase(), time]
+    [companyId, employeeId, attendanceId, ev, time]
   );
 
   return result.rows[0];

@@ -24,21 +24,25 @@ router.get('/:id/activity', async (req, res) => {
     const sessions = (sessionsRes.rows || []).sort((a, b) => new Date(a.check_in) - new Date(b.check_in));
     const events = (eventsRes.rows || []).sort((a, b) => new Date(a.event_time) - new Date(b.event_time));
 
-    // Pair events into break pairs
+    // Pair events into break pairs: completed pairs + AT MOST ONE active break per type
+    // (the first unmatched START). Guards against duplicate STARTs creating multiple
+    // "active" breaks — which made the live work timer subtract break time twice.
     const pairs = { LUNCH: [], TEA: [] };
     for (const type of ['LUNCH', 'TEA']) {
       const starts = events.filter(e => e.event_type === `${type}_START`);
       const ends = events.filter(e => e.event_type === `${type}_END`);
-      for (let i = 0; i < starts.length; i++) {
-        const s = starts[i];
-        const e = ends[i];
-        const dur = e ? Math.max(1, Math.ceil((new Date(e.event_time) - new Date(s.event_time)) / 60000)) : null;
+      const n = Math.min(starts.length, ends.length);
+      for (let i = 0; i < n; i++) {
+        const s = starts[i], e = ends[i];
         pairs[type].push({
           start: s.event_time,
-          end: e ? e.event_time : null,
-          duration_minutes: dur,
-          status: e ? 'COMPLETED' : 'ACTIVE'
+          end: e.event_time,
+          duration_minutes: Math.max(1, Math.ceil((new Date(e.event_time) - new Date(s.event_time)) / 60000)),
+          status: 'COMPLETED'
         });
+      }
+      if (starts.length > ends.length) {
+        pairs[type].push({ start: starts[n].event_time, end: null, duration_minutes: null, status: 'ACTIVE' });
       }
     }
 
