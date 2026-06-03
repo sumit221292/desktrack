@@ -194,6 +194,38 @@ const Leaves = () => {
         ))}
       </div>
 
+      {/* Company Holidays — visible to every user */}
+      <Card>
+        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4 px-2">Company Holidays — {currentYear}</h3>
+        {(() => {
+          const todayISO = new Date().toLocaleDateString('en-CA');
+          const list = holidays
+            .filter(h => String(h.date).startsWith(String(currentYear)))
+            .sort((a, b) => a.date.localeCompare(b.date));
+          if (list.length === 0) return <p className="px-2 text-sm text-slate-400 italic">No company holidays set for {currentYear}.</p>;
+          return (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+              {list.map(h => {
+                const d = new Date(h.date + 'T00:00:00');
+                const past = h.date < todayISO;
+                return (
+                  <div key={h.date} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border ${past ? 'bg-slate-50 border-slate-100 opacity-60' : 'bg-amber-50 border-amber-100'}`}>
+                    <div className="text-center min-w-[40px]">
+                      <p className={`text-lg font-bold leading-none ${past ? 'text-slate-500' : 'text-amber-700'}`}>{d.getDate()}</p>
+                      <p className={`text-[10px] font-semibold uppercase ${past ? 'text-slate-400' : 'text-amber-600'}`}>{d.toLocaleDateString('en-US', { month: 'short' })}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 truncate" title={h.name}>{h.name}</p>
+                      <p className="text-[11px] text-slate-500">{d.toLocaleDateString('en-US', { weekday: 'long' })}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </Card>
+
       {/* Balances */}
       {balances.length > 0 && (
         <Card>
@@ -229,38 +261,6 @@ const Leaves = () => {
           </div>
         </Card>
       )}
-
-      {/* Company Holidays — visible to every user */}
-      <Card>
-        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4 px-2">Company Holidays — {currentYear}</h3>
-        {(() => {
-          const todayISO = new Date().toLocaleDateString('en-CA');
-          const list = holidays
-            .filter(h => String(h.date).startsWith(String(currentYear)))
-            .sort((a, b) => a.date.localeCompare(b.date));
-          if (list.length === 0) return <p className="px-2 text-sm text-slate-400 italic">No company holidays set for {currentYear}.</p>;
-          return (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-              {list.map(h => {
-                const d = new Date(h.date + 'T00:00:00');
-                const past = h.date < todayISO;
-                return (
-                  <div key={h.date} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border ${past ? 'bg-slate-50 border-slate-100 opacity-60' : 'bg-amber-50 border-amber-100'}`}>
-                    <div className="text-center min-w-[40px]">
-                      <p className={`text-lg font-bold leading-none ${past ? 'text-slate-500' : 'text-amber-700'}`}>{d.getDate()}</p>
-                      <p className={`text-[10px] font-semibold uppercase ${past ? 'text-slate-400' : 'text-amber-600'}`}>{d.toLocaleDateString('en-US', { month: 'short' })}</p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 truncate" title={h.name}>{h.name}</p>
-                      <p className="text-[11px] text-slate-500">{d.toLocaleDateString('en-US', { weekday: 'long' })}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })()}
-      </Card>
 
       {/* Requests Table */}
       <Card>
