@@ -218,8 +218,11 @@ const Payroll = () => {
   const { user, selectedDate, formatCurrency, currencyConfig, hasPermission, deductionTypes: globalDeductionTypes } = useAuth();
   const isEmployee = user?.role === 'EMPLOYEE';
   const now = new Date(selectedDate);
-  const [selMonth, setSelMonth] = useState(now.getMonth() + 1);
-  const [selYear,  setSelYear]  = useState(now.getFullYear());
+  // Payroll defaults to the PREVIOUS (completed) month — the current month usually has
+  // no / partial attendance, which would prorate everyone's salary down to ~zero.
+  const _prevPay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const [selMonth, setSelMonth] = useState(_prevPay.getMonth() + 1);
+  const [selYear,  setSelYear]  = useState(_prevPay.getFullYear());
 
   const CurrencyIcon = currencyConfig?.code === 'INR' ? IndianRupee
     : currencyConfig?.code === 'EUR' ? Euro : DollarSign;
@@ -740,6 +743,13 @@ const Payroll = () => {
               </Button>
             </div>
           </div>
+
+          {(selYear > now.getFullYear() || (selYear === now.getFullYear() && selMonth >= now.getMonth() + 1)) && (
+            <div className="mx-5 mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+              <AlertCircle size={16} className="shrink-0 mt-0.5" />
+              <span><b>{currentMonthLabel} is still in progress.</b> Attendance for this month isn't complete, so salaries may show low or ₹0. Payroll is meant to be run <b>after the month ends</b> — select the previous month to see final salaries.</span>
+            </div>
+          )}
 
           {loading ? (
             <div className="p-12 text-center text-slate-400 font-medium">Loading payroll data…</div>
