@@ -55,23 +55,25 @@ const LiveBreakDisplay = ({ completedMins = 0, activeStart }) => {
 };
 
 // Live work timer for dashboard
-const DashboardLiveTimer = ({ checkIn, breakMins = 0, isLive, netMins }) => {
+// Format a number of seconds as HH:MM:SS
+const fmtHMS = (totalSecs) => {
+  const s = Math.max(0, Math.floor(totalSecs || 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+};
+
+const DashboardLiveTimer = ({ checkIn, breakSecs = 0, isLive, netSecs = 0 }) => {
   const [display, setDisplay] = useState('');
   useEffect(() => {
-    if (!isLive) {
-      const m = netMins || 0;
-      setDisplay(`${Math.floor(m / 60)}h ${String(Math.floor(m % 60)).padStart(2, '0')}m`);
-      return;
-    }
+    if (!isLive) { setDisplay(fmtHMS(netSecs)); return; }
     const tick = () => {
-      const elapsed = Math.floor((Date.now() - new Date(checkIn).getTime()) / 60000) - (breakMins || 0);
-      const m = Math.max(0, elapsed);
-      setDisplay(`${Math.floor(m / 60)}h ${String(Math.floor(m % 60)).padStart(2, '0')}m`);
+      const elapsed = Math.floor((Date.now() - new Date(checkIn).getTime()) / 1000) - (breakSecs || 0);
+      setDisplay(fmtHMS(elapsed));
     };
     tick();
-    const id = setInterval(tick, 30000);
+    const id = setInterval(tick, 1000); // tick every second
     return () => clearInterval(id);
-  }, [checkIn, breakMins, isLive, netMins]);
+  }, [checkIn, breakSecs, isLive, netSecs]);
   return <>{display}</>;
 };
 
@@ -346,8 +348,8 @@ const Dashboard = () => {
             setStats([
               { label: 'Status', value: isPresent ? 'Present' : 'Absent', icon: CheckCircle, color: isPresent ? 'text-success-600' : 'text-alert-600', bg: isPresent ? 'bg-success-100' : 'bg-alert-100', trend: 'Today' },
               { label: 'Arrival', value: statusStr || (isPresent ? 'ON TIME' : '-'), icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', trend: 'Today' },
-              { label: 'Work Hours', value: myData?.workHours || '0h 00m', icon: TrendingUp, color: 'text-indigo-600', bg: 'bg-indigo-100', trend: 'Today' },
-              { label: 'Break', value: myData?.breakTime || '0h 00m', icon: Clock, color: 'text-primary-600', bg: 'bg-primary-100', trend: 'Today' },
+              { label: 'Work Hours', value: fmtHMS(myData?.net_work_seconds), icon: TrendingUp, color: 'text-indigo-600', bg: 'bg-indigo-100', trend: 'Today' },
+              { label: 'Break', value: fmtHMS(myData?.total_break_seconds), icon: Clock, color: 'text-primary-600', bg: 'bg-primary-100', trend: 'Today' },
             ]);
           }
         }
@@ -528,7 +530,7 @@ const Dashboard = () => {
                 <div className="text-center min-w-[70px]">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Working</p>
                   <p className="text-lg font-bold text-blue-600 font-mono">
-                    <DashboardLiveTimer checkIn={myAttendance.check_in} breakMins={myAttendance.total_break_minutes || 0} isLive={myAttendance.is_checked_in} netMins={myAttendance.net_work_minutes} />
+                    <DashboardLiveTimer checkIn={myAttendance.check_in} breakSecs={myAttendance.total_break_seconds || 0} isLive={myAttendance.is_checked_in} netSecs={myAttendance.net_work_seconds || 0} />
                   </p>
                 </div>
                 <div className="w-px h-12 bg-slate-200" />
@@ -541,8 +543,8 @@ const Dashboard = () => {
                     </p>
                   </div>
                   <div className="flex flex-col gap-0.5 text-[10px] font-mono">
-                    <span className="text-orange-600 font-bold">🍽️ {String(Math.floor(lunchUsedMins/60)).padStart(2,'0')}:{String(lunchUsedMins%60).padStart(2,'0')}:00 / {String(Math.floor(lunchAllowed/60)).padStart(2,'0')}:{String(lunchAllowed%60).padStart(2,'0')}:00</span>
-                    <span className="text-teal-600 font-bold">🍵 {String(Math.floor(teaUsedMins/60)).padStart(2,'0')}:{String(teaUsedMins%60).padStart(2,'0')}:00 / {String(Math.floor(teaAllowed/60)).padStart(2,'0')}:{String(teaAllowed%60).padStart(2,'0')}:00</span>
+                    <span className="text-orange-600 font-bold">🍽️ <LiveBreakDisplay completedMins={lunchUsedMins} activeStart={onLunch ? lunchStartTime : null} /> / {fmtHMS(lunchAllowed * 60)}</span>
+                    <span className="text-teal-600 font-bold">🍵 <LiveBreakDisplay completedMins={teaUsedMins} activeStart={onTea ? teaStartTime : null} /> / {fmtHMS(teaAllowed * 60)}</span>
                   </div>
                 </div>
               </div>
@@ -695,11 +697,8 @@ const Dashboard = () => {
       <Modal isOpen={!!activityDetail} onClose={() => setActivityDetail(null)} title={activityDetail ? `${activityDetail.name} — Today's Activity` : 'Activity Detail'} maxWidth="max-w-2xl">
         {activityDetail && (() => {
           const fmtT = (iso) => iso ? new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) : '—';
-          const fmtD = (mins) => {
-            if (!mins) return '0m';
-            const h = Math.floor(mins/60); const m = mins%60;
-            return h > 0 ? `${h}h ${m}m` : `${m}m`;
-          };
+          // seconds between two ISO times (to now if the end is missing — active session/break)
+          const secsBetween = (a, b) => a ? Math.max(0, Math.floor((new Date(b || Date.now()).getTime() - new Date(a).getTime()) / 1000)) : 0;
           return (
             <div className="space-y-5">
               {/* Summary Card */}
@@ -716,11 +715,11 @@ const Dashboard = () => {
                 </div>
                 <div className="p-3 rounded-lg bg-blue-50 border border-blue-100">
                   <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Work</p>
-                  <p className="text-lg font-bold text-blue-700 font-mono">{fmtD(activityDetail.net_work_minutes)}</p>
+                  <p className="text-lg font-bold text-blue-700 font-mono">{fmtHMS(activityDetail.net_work_seconds)}</p>
                 </div>
                 <div className="p-3 rounded-lg bg-amber-50 border border-amber-100">
                   <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Break</p>
-                  <p className="text-lg font-bold text-amber-700 font-mono">{fmtD(activityDetail.total_break_minutes)}</p>
+                  <p className="text-lg font-bold text-amber-700 font-mono">{fmtHMS(activityDetail.total_break_seconds)}</p>
                 </div>
               </div>
 
@@ -742,7 +741,7 @@ const Dashboard = () => {
                           <span className="font-mono text-red-600">{s.check_out ? fmtT(s.check_out) : 'Active'}</span>
                         </div>
                         <span className="font-bold text-slate-700 font-mono">
-                          {s.duration_minutes ? fmtD(parseInt(s.duration_minutes)) : '—'}
+                          {s.check_out ? fmtHMS(secsBetween(s.check_in, s.check_out)) : 'Active'}
                         </span>
                       </div>
                     ))}
@@ -754,7 +753,7 @@ const Dashboard = () => {
               <div>
                 <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
                   <span>🍽️ Lunch Breaks ({activityHistory.breaks.LUNCH.length})</span>
-                  <span className="text-orange-600 font-mono">Total: {fmtD(activityDetail.lunch_actual_minutes)}</span>
+                  <span className="text-orange-600 font-mono">Total: {fmtHMS(activityDetail.lunch_actual_seconds)}</span>
                 </h4>
                 {activityHistory.breaks.LUNCH.length === 0 ? (
                   <p className="text-xs text-slate-400 italic">Not taken</p>
@@ -769,7 +768,7 @@ const Dashboard = () => {
                           <span className="font-mono text-orange-700">{b.end ? fmtT(b.end) : 'Ongoing'}</span>
                         </div>
                         <span className={`font-bold font-mono ${b.status === 'ACTIVE' ? 'text-amber-600 animate-pulse' : 'text-orange-700'}`}>
-                          {b.duration_minutes ? fmtD(b.duration_minutes) : '—'}
+                          {b.end ? fmtHMS(secsBetween(b.start, b.end)) : 'Ongoing'}
                         </span>
                       </div>
                     ))}
@@ -781,7 +780,7 @@ const Dashboard = () => {
               <div>
                 <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
                   <span>🍵 Tea Breaks ({activityHistory.breaks.TEA.length})</span>
-                  <span className="text-teal-600 font-mono">Total: {fmtD(activityDetail.tea_actual_minutes)}</span>
+                  <span className="text-teal-600 font-mono">Total: {fmtHMS(activityDetail.tea_actual_seconds)}</span>
                 </h4>
                 {activityHistory.breaks.TEA.length === 0 ? (
                   <p className="text-xs text-slate-400 italic">Not taken</p>
@@ -796,7 +795,7 @@ const Dashboard = () => {
                           <span className="font-mono text-teal-700">{b.end ? fmtT(b.end) : 'Ongoing'}</span>
                         </div>
                         <span className={`font-bold font-mono ${b.status === 'ACTIVE' ? 'text-amber-600 animate-pulse' : 'text-teal-700'}`}>
-                          {b.duration_minutes ? fmtD(b.duration_minutes) : '—'}
+                          {b.end ? fmtHMS(secsBetween(b.start, b.end)) : 'Ongoing'}
                         </span>
                       </div>
                     ))}

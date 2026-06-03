@@ -269,8 +269,9 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
   // 3. OTHER BREAKS (Intermediate checkout/checkin pairs)
   // These are often already in attendance_sessions, but let's calculate based on gaps if lastCheckOut exists
   let otherBreakMinutes = 0;
+  let otherBreakSeconds = 0;
   const breakRecords = [];
-  
+
   if (sessions.length > 1) {
     const sortedSessions = [...sessions].sort((a, b) => new Date(a.check_in) - new Date(b.check_in));
     for (let i = 0; i < sortedSessions.length - 1; i++) {
@@ -291,6 +292,7 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
       const overlapsNamed = windows.some(w => breakStart < w.end && breakEnd > w.start);
       if (!overlapsNamed) {
         otherBreakMinutes += diff;
+        otherBreakSeconds += Math.round((breakEnd - breakStart) / 1000);
         breakRecords.push({
           break_type: 'OTHER',
           break_start: breakStart.toISOString(),
@@ -313,6 +315,26 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
   const grossMinutes = endMs ? Math.max(0, Math.floor((endMs - firstCheckIn.getTime()) / 60000)) : 0;
 
   const netWorkMinutes = Math.max(0, grossMinutes - totalBreakMinutes);
+
+  // Second-precise durations for HH:MM:SS display (does NOT affect status/payroll,
+  // which use the minute fields above). Active breaks count up to checkout/now.
+  const _nowMs = Date.now();
+  let totalNamedBreakSeconds = 0;
+  for (const t of breakTypes) {
+    const tu = t.toUpperCase();
+    const ss = events.filter(e => e.event_type === `${tu}_START`).map(e => new Date(e.event_time).getTime()).sort((a, b) => a - b);
+    const es = events.filter(e => e.event_type === `${tu}_END`).map(e => new Date(e.event_time).getTime()).sort((a, b) => a - b);
+    let secs = 0;
+    for (let i = 0; i < ss.length; i++) {
+      const end = es[i] != null ? es[i] : (lastCheckOut ? lastCheckOut.getTime() : _nowMs);
+      if (end > ss[i]) secs += (end - ss[i]) / 1000;
+    }
+    namedBreakResults[`${t}_actual_seconds`] = Math.round(secs);
+    totalNamedBreakSeconds += secs;
+  }
+  const grossSeconds = endMs ? Math.max(0, Math.floor((endMs - firstCheckIn.getTime()) / 1000)) : 0;
+  const totalBreakSeconds = Math.round(totalNamedBreakSeconds) + otherBreakSeconds;
+  const netWorkSeconds = Math.max(0, grossSeconds - totalBreakSeconds);
   const shiftDurationMins = (shift.total_working_hours || 0) * 60;
   const overtimeMinutes = Math.max(0, netWorkMinutes - shiftDurationMins);
 
@@ -379,6 +401,9 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
       excess_break_minutes: excessBreakMinutes,
       gross_minutes: grossMinutes,
       net_work_minutes: netWorkMinutes,
+      gross_seconds: grossSeconds,
+      total_break_seconds: totalBreakSeconds,
+      net_work_seconds: netWorkSeconds,
       effective_presence_minutes: effectivePresenceMinutes,
       expected_checkout_minutes: expectedCheckoutMinutes,
       overtime_minutes: overtimeMinutes,
