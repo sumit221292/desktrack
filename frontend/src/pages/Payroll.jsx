@@ -811,7 +811,7 @@ const Payroll = () => {
                           <div className="mt-3 ml-14 flex flex-wrap gap-5 text-xs text-slate-500">
                             <span>Basic: <strong className="text-slate-700">{formatCurrency(fullBasic)}</strong></span>
                             <span>HRA: <strong className="text-slate-700">{formatCurrency(fullHra)}</strong></span>
-                            <span>DA: <strong className="text-slate-700">{formatCurrency(fullDa)}</strong></span>
+                            <span>Entertainment Allowance: <strong className="text-slate-700">{formatCurrency(fullDa)}</strong></span>
                             <span>Gross: <strong className="text-emerald-700">{formatCurrency(fullGross)}</strong></span>
                             {lop > 0 && <span className="text-amber-600">LOP: <strong>−{formatCurrency(lop)}</strong></span>}
                             <span className="text-red-400">PF: <strong>{formatCurrency(r.pf)}</strong></span>
