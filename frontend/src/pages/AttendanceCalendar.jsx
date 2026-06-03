@@ -129,18 +129,25 @@ const IndividualCalendar = ({ emp, records, specialEvents, weeks, month, year, t
                 const isWeekend = di === 0 || di === 6;
                 const isToday = ds === todayStr;
                 const isAttend = ['PRESENT', 'ON TIME', 'COMPLETE', 'LATE', 'OVER LATE', 'OVERLATE', 'HALF DAY', 'HALFDAY'].includes(s);
-                const sub = isAttend ? (r.check_in ? fmtTime(r.check_in) : '—')
-                  : s === 'LEAVE' ? (r.leaveCode || 'Leave')
+                // Non-attend sub-line (leave code / holiday name)
+                const sub = s === 'LEAVE' ? (r.leaveCode || 'Leave')
                   : s === 'OFFICE HOLIDAY' ? ((specialEvents[ds] || []).find(e => e.type === 'holiday')?.name || '') : null;
                 return (
-                  <td key={day} className={`border border-slate-100 align-top p-1.5 h-24 ${isWeekend ? 'bg-slate-50/60' : 'bg-white'}`}>
+                  <td key={day} className={`border border-slate-100 align-top p-1.5 h-28 ${isWeekend ? 'bg-slate-50/60' : 'bg-white'}`}>
                     <div className="flex justify-end mb-1">
                       <span className={`text-xs font-semibold ${isToday ? 'w-5 h-5 flex items-center justify-center bg-blue-600 text-white rounded-full' : 'text-slate-500'}`}>{day}</span>
                     </div>
                     {s !== '-' && (
                       <div className="rounded-md px-1 py-1 text-center" style={{ background: cfg.bg, border: `1px solid ${cfg.border}` }}>
                         <p className="text-[11px] font-bold leading-tight truncate" style={{ color: cfg.color }}>{cfg.label}</p>
-                        {sub && <p className="text-[9px] mt-0.5 truncate" style={{ color: cfg.color }}>{sub}</p>}
+                        {isAttend ? (
+                          <>
+                            <p className="text-[9px] mt-0.5 leading-tight truncate font-mono" style={{ color: cfg.color }}>
+                              {r.check_in ? fmtTime(r.check_in) : '—'} → {r.check_out ? fmtTime(r.check_out) : 'Missed'}
+                            </p>
+                            {r.workHours && <p className="text-[10px] font-bold leading-tight" style={{ color: cfg.color }}>{r.workHours}</p>}
+                          </>
+                        ) : (sub && <p className="text-[9px] mt-0.5 truncate" style={{ color: cfg.color }}>{sub}</p>)}
                       </div>
                     )}
                   </td>
