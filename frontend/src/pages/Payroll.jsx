@@ -44,14 +44,15 @@ const PAYROLL_COLS = [
   { key: 'telephone',     label: 'Telephone Allowance',     valCls: 'text-slate-700',          get: (r, ss) => parseFloat(ss?.conveyance) || parseFloat(r?.conveyance) || 0 },
   { key: 'entertainment', label: 'Entertainment Allowance', valCls: 'text-slate-700',          get: (r, ss) => parseFloat(ss?.da) || parseFloat(r?.da) || 0 },
   { key: 'gross',         label: 'Gross',                   valCls: 'text-emerald-700',        get: (r, ss) => ss ? [ss.basic_pay, ss.hra, ss.da, ss.conveyance, ss.medical, ss.special_allowance].reduce((a, b) => a + (parseFloat(b) || 0), 0) : (parseFloat(r?.gross_salary) || 0) },
-  { key: 'lop',           label: 'LOP',                     spanCls: 'text-amber-600', neg: true, get: (r) => parseFloat(r?.lop_amount) || 0 },
-  { key: 'pf',            label: 'PF',                      spanCls: 'text-red-400',           get: (r) => parseFloat(r?.pf) || 0 },
-  { key: 'esi',           label: 'ESI',                     spanCls: 'text-red-400',           get: (r) => parseFloat(r?.esi) || 0 },
-  { key: 'pt',            label: 'PT',                      spanCls: 'text-red-400',           get: (r) => parseFloat(r?.professional_tax) || 0 },
+  { key: 'lop',           label: 'LOP',                     spanCls: 'text-amber-600', neg: true, ded: true, get: (r) => parseFloat(r?.lop_amount) || 0 },
+  { key: 'pf',            label: 'PF',                      spanCls: 'text-red-400',           ded: true, get: (r) => parseFloat(r?.pf) || 0 },
+  { key: 'esi',           label: 'ESI',                     spanCls: 'text-red-400',           ded: true, get: (r) => parseFloat(r?.esi) || 0 },
+  { key: 'pt',            label: 'PT',                      spanCls: 'text-red-400',           ded: true, get: (r) => parseFloat(r?.professional_tax) || 0 },
+  { key: 'tds',           label: 'TDS',                     spanCls: 'text-red-400',           ded: true, get: (r) => parseFloat(r?.tds) || 0 },
   { key: 'net',           label: 'Net',                     valCls: 'text-slate-900 text-sm',  get: (r) => parseFloat(r?.net_salary) || 0 },
 ];
 // Default visible set (matches the company payslip's meaningful components).
-const DEFAULT_PAYROLL_COLS = ['basic', 'hra', 'special', 'gross', 'lop', 'pf', 'esi', 'pt', 'net'];
+const DEFAULT_PAYROLL_COLS = ['basic', 'hra', 'special', 'gross', 'lop', 'pf', 'esi', 'pt', 'tds', 'net'];
 
 // ─── Salary Slip Print Component ────────────────────────────────────────────
 const fmtDate = (s) => {
@@ -861,6 +862,9 @@ const Payroll = () => {
                         <div className="mt-3 ml-14 flex flex-wrap gap-5 text-xs text-slate-500">
                           {PAYROLL_COLS.filter(c => visibleCols[c.key]).map(c => {
                             const val = c.get(r, ss);
+                            // A deduction only shows if it actually applies to this employee
+                            // (enabled in their structure → value > 0). Otherwise it's hidden.
+                            if (c.ded && !(val > 0)) return null;
                             return (
                               <span key={c.key} className={c.spanCls || ''}>
                                 {c.label}: <strong className={c.valCls || ''}>{c.neg && val > 0 ? '−' : ''}{formatCurrency(val)}</strong>
@@ -1927,6 +1931,9 @@ const Payroll = () => {
             <p className="text-sm font-bold text-slate-700 bg-slate-50 px-4 py-2 rounded-xl">
               {selectedRecord.first_name} {selectedRecord.last_name} · {MONTHS[selMonth-1]} {selYear}
             </p>
+            <p className="text-[11px] text-slate-500 leading-snug bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              These are <strong>this month&apos;s earned</strong> amounts (prorated by attendance) — not the full salary template. The template lives in <strong>Salary Structure</strong>; edits here override only this month.
+            </p>
             <div className="grid grid-cols-2 gap-4">
               {[
                 { key: 'basic_pay', label: 'Basic Salary' },
@@ -1948,6 +1955,7 @@ const Payroll = () => {
                       className="w-full pl-7 pr-3 py-2 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-primary-500/20 bg-slate-50"
                     />
                   </div>
+                  {key === 'tds' && <p className="text-[10px] text-slate-400 mt-1 leading-snug">Auto-computed at payroll from the Tax Declaration — override only if needed.</p>}
                 </div>
               ))}
             </div>
