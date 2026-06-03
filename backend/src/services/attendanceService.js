@@ -823,21 +823,22 @@ const logEvent = async (userIdOrEmployeeId, companyId, eventType, eventTime) => 
 
   const attendanceId = attResult.rows[0].id;
 
-  // Idempotent break toggling: never allow two START without an END (or vice-versa),
-  // which would create multiple "active" breaks and make work-time double-subtract.
+  // Only ONE break at a time + idempotent toggling: a START while ANY break (lunch OR
+  // tea) is already open is ignored, and an END for a break you're not on is ignored.
+  // Prevents overlapping "active" breaks that make the live work timer mis-count.
   const ev = eventType.toUpperCase();
   const baseType = ev.replace(/_START$|_END$/, '');
   const isStart = ev.endsWith('_START');
   const cnt = await query(
-    `SELECT
-       COUNT(*) FILTER (WHERE event_type = $3) AS starts,
-       COUNT(*) FILTER (WHERE event_type = $4) AS ends
-     FROM attendance_events WHERE attendance_id = $1 AND company_id = $2`,
-    [attendanceId, companyId, `${baseType}_START`, `${baseType}_END`]
+    `SELECT event_type, COUNT(*) AS n FROM attendance_events WHERE attendance_id = $1 AND company_id = $2 GROUP BY event_type`,
+    [attendanceId, companyId]
   );
-  const open = (parseInt(cnt.rows[0].starts) || 0) - (parseInt(cnt.rows[0].ends) || 0);
-  if (isStart && open > 0) return { ignored: true, message: `Already on ${baseType.toLowerCase()} break` };
-  if (!isStart && open <= 0) return { ignored: true, message: `Not on ${baseType.toLowerCase()} break` };
+  const counts = {};
+  cnt.rows.forEach(r => { counts[r.event_type] = parseInt(r.n) || 0; });
+  const openOf = (t) => (counts[`${t}_START`] || 0) - (counts[`${t}_END`] || 0);
+  const anyBreakOpen = ['LUNCH', 'TEA'].some(t => openOf(t) > 0);
+  if (isStart && anyBreakOpen) return { ignored: true, message: 'Already on a break' };
+  if (!isStart && openOf(baseType) <= 0) return { ignored: true, message: `Not on ${baseType.toLowerCase()} break` };
 
   // Log Event
   const result = await query(

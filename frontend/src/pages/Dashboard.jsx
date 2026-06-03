@@ -72,8 +72,14 @@ const DashboardLiveTimer = ({ sessions = [], breaks = { LUNCH: [], TEA: [] }, is
     const compute = () => {
       if (!sessions.length) return fallbackSecs || 0;
       const work = sessions.reduce((s, x) => s + sb(x.check_in, x.check_out), 0);
-      const brk = [...(breaks.LUNCH || []), ...(breaks.TEA || [])].reduce((s, b) => s + sb(b.start, b.end), 0);
-      return Math.max(0, work - brk);
+      const all = [...(breaks.LUNCH || []), ...(breaks.TEA || [])];
+      // Completed breaks + AT MOST ONE active break (you can only be on one break at a
+      // time). Counting the single earliest open break keeps work frozen during a break
+      // even if bad data has more than one break open at once.
+      const completed = all.filter(b => b.end).reduce((s, b) => s + sb(b.start, b.end), 0);
+      const activeStarts = all.filter(b => !b.end).map(b => new Date(b.start).getTime());
+      const active = activeStarts.length ? Math.max(0, Math.floor((Date.now() - Math.min(...activeStarts)) / 1000)) : 0;
+      return Math.max(0, work - completed - active);
     };
     const tick = () => setDisplay(fmtHMS(compute()));
     tick();
@@ -729,7 +735,13 @@ const Dashboard = () => {
           const sumBreaks = (arr) => (arr || []).reduce((sum, b) => sum + secsBetween(b.start, b.end), 0);
           const lunchLive = sumBreaks(activityHistory.breaks.LUNCH);
           const teaLive = sumBreaks(activityHistory.breaks.TEA);
-          const breakLive = lunchLive + teaLive;
+          // Total break for work = completed breaks + AT MOST ONE active break (only one
+          // break can run at a time), so work pauses correctly even with bad overlapping data.
+          const _allBreaks = [...(activityHistory.breaks.LUNCH || []), ...(activityHistory.breaks.TEA || [])];
+          const _completedBrk = _allBreaks.filter(b => b.end).reduce((s, b) => s + secsBetween(b.start, b.end), 0);
+          const _activeStarts = _allBreaks.filter(b => !b.end).map(b => new Date(b.start).getTime());
+          const _activeBrk = _activeStarts.length ? Math.max(0, Math.floor((Date.now() - Math.min(..._activeStarts)) / 1000)) : 0;
+          const breakLive = _completedBrk + _activeBrk;
           const workLive = activityHistory.sessions.length
             ? Math.max(0, activityHistory.sessions.reduce((sum, s) => sum + secsBetween(s.check_in, s.check_out), 0) - breakLive)
             : (activityDetail.net_work_seconds || 0);
