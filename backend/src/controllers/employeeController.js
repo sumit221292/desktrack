@@ -47,6 +47,23 @@ const createEmployee = async (req, res) => {
       await Promise.all(promises);
     }
 
+    // Auto-initialize this year's leave balances for the new employee (one row per leave
+    // type), so they show in the balances table and leave-apply validates immediately —
+    // no manual "Init Balances" needed. Monthly-accrual types ramp from the joining month.
+    try {
+      const year = new Date().getFullYear();
+      const lts = await query('SELECT id, annual_quota FROM leave_types WHERE company_id = $1', [companyId]);
+      for (const lt of lts.rows) {
+        const q = parseFloat(lt.annual_quota) || 0;
+        await query(
+          `INSERT INTO leave_balances (company_id, employee_id, leave_type_id, year, total, used, remaining)
+           VALUES ($1, $2, $3, $4, $5, 0, $5)
+           ON CONFLICT (employee_id, leave_type_id, year) DO NOTHING`,
+          [companyId, newEmp.id, lt.id, year, q]
+        );
+      }
+    } catch (e) { console.error('Auto-init leave balances failed (use Init Balances):', e.message); }
+
     res.status(201).json(newEmp);
   } catch (err) {
     console.error('Create Employee Error:', err);

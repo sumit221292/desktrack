@@ -13,13 +13,23 @@ const istToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkat
 //  - 'annual'  → full quota upfront (current behaviour).
 //  - 'monthly' → quota/12 per month, available at the START of each month
 //    (Jan→1 … Jun→6 … Dec→12). Past years fully accrued; future years none.
-const accruedToDate = (type, balanceYear) => {
+const accruedToDate = (type, balanceYear, joinDate) => {
   const quota = parseFloat(type.annual_quota) || 0;
-  if ((type.accrual_frequency || 'annual') !== 'monthly') return quota;
+  if ((type.accrual_frequency || 'annual') !== 'monthly') return quota; // annual = full upfront
   const { year, month } = istParts();
   if (balanceYear < year) return quota;
   if (balanceYear > year) return 0;
-  return Math.min(quota, Math.floor((quota * month) / 12));
+  // Accrue from the JOINING month when the employee joined during the balance year
+  // (a June joiner earns from June, not January). Otherwise accrue from January.
+  let startMonth = 1;
+  if (joinDate) {
+    const j = String(joinDate).slice(0, 10);
+    const jY = parseInt(j.slice(0, 4), 10), jM = parseInt(j.slice(5, 7), 10);
+    if (jY > balanceYear) return 0;                 // joined after this year
+    if (jY === balanceYear && jM >= 1) startMonth = jM;
+  }
+  const monthsAccrued = Math.max(0, month - startMonth + 1);
+  return Math.min(quota, Math.floor((quota * monthsAccrued) / 12));
 };
 
 // ─── Leave Types ───
@@ -118,9 +128,10 @@ const applyLeave = async (req, res) => {
   const { leave_type_id, start_date, end_date, reason, leave_session } = req.body;
   try {
     // Resolve employee ID from user
-    const empResult = await query('SELECT id FROM employees WHERE email = (SELECT email FROM users WHERE id = $1) AND company_id = $2', [req.user.id, req.tenantId]);
+    const empResult = await query('SELECT id, joining_date FROM employees WHERE email = (SELECT email FROM users WHERE id = $1) AND company_id = $2', [req.user.id, req.tenantId]);
     if (empResult.rows.length === 0) return res.status(400).json({ error: 'Employee not found.' });
     const employeeId = empResult.rows[0].id;
+    const joiningDate = empResult.rows[0].joining_date;
 
     // Half-day leave is a SINGLE day worth 0.5 (FIRST_HALF / SECOND_HALF is just a label);
     // a full leave counts the weekdays in the range. Date-only YYYY-MM-DD string compares.
@@ -159,7 +170,7 @@ const applyLeave = async (req, res) => {
     if (lt && (parseInt(lt.annual_quota) || 0) > 0 && balResult.rows.length > 0) {
       const used = parseFloat(balResult.rows[0].used) || 0;
       // Cap = this employee's allocated `total` (HR-overridable), ramped by the type's accrual mode.
-      const available = Math.max(0, accruedToDate({ annual_quota: balResult.rows[0].total, accrual_frequency: lt.accrual_frequency }, year) - used);
+      const available = Math.max(0, accruedToDate({ annual_quota: balResult.rows[0].total, accrual_frequency: lt.accrual_frequency }, year, joiningDate) - used);
       if (days > available) {
         const rate = (parseInt(lt.annual_quota) || 0) / 12;
         const note = lt.accrual_frequency === 'monthly' ? ` (accrues ${rate % 1 === 0 ? rate : rate.toFixed(2)}/month)` : '';
@@ -289,7 +300,7 @@ const getLeaveBalances = async (req, res) => {
       employeeId = emp.rows[0]?.id || -1;
     }
     let sql = `SELECT lb.*, lt.name as leave_type_name, lt.code as leave_type_code,
-                      lt.annual_quota, lt.accrual_frequency, e.first_name, e.last_name
+                      lt.annual_quota, lt.accrual_frequency, e.first_name, e.last_name, e.joining_date
                FROM leave_balances lb
                LEFT JOIN leave_types lt ON lb.leave_type_id = lt.id
                LEFT JOIN employees e ON lb.employee_id = e.id
@@ -301,7 +312,7 @@ const getLeaveBalances = async (req, res) => {
       // accrued = days earned so far. The cap is the BALANCE's `total` (the per-employee
       // allocation HR can override), not the type's annual_quota — so a custom allocation
       // (e.g. CL 6 for one employee) is respected. Monthly types ramp `total` over the year.
-      const accrued = accruedToDate({ annual_quota: r.total, accrual_frequency: r.accrual_frequency }, parseInt(r.year));
+      const accrued = accruedToDate({ annual_quota: r.total, accrual_frequency: r.accrual_frequency }, parseInt(r.year), r.joining_date);
       const available = Math.max(0, accrued - (parseFloat(r.used) || 0));
       return {
         ...r,
