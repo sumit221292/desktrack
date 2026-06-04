@@ -103,7 +103,9 @@ const SalarySlip = ({ data, company, formatCurrency, currencyConfig }) => {
     const b = (data.leaveBalances || []).find(x => x.code === code);
     return b ? b.remaining : 0;
   };
-  const leavesTaken = (parseFloat(data.paid_leave_days) || 0) + (parseFloat(data.unpaid_leave_days) || 0);
+  // Only PAID leave is shown here (it's counted in Payable Days, so pay isn't cut).
+  // Unpaid leave isn't "leave" for pay — it sits inside LOP Days above.
+  const paidLeaveTaken = parseFloat(data.paid_leave_days) || 0;
   // LOP days = every working day not paid for: absences + unpaid leave + half-day
   // shortfalls. Defined as Total Working − Payable so it always reconciles with the
   // "Loss of Pay (LOP)" deduction (perDay × this) shown in the Deductions column.
@@ -126,7 +128,7 @@ const SalarySlip = ({ data, company, formatCurrency, currencyConfig }) => {
     ['Total Working Days', data.total_working_days || 0],
     ['Payable Days', data.payable_days || 0],
     ['LOP Days', lopDays],
-    ['Leaves Taken (month)', leavesTaken],
+    ['Paid Leave Taken (month)', paidLeaveTaken],
     ['CL Balance', balByCode('CL')],
     ['SL Balance', balByCode('SL')],
   ];
