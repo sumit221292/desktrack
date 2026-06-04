@@ -44,8 +44,32 @@ const MiniCalendar = ({ month, year, today, onDayClick, selectedDate }) => {
   );
 };
 
+// Live work time for a day cell. For an in-progress (checked-in) day it ticks every
+// second from the server's net_work_seconds + elapsed since fetch — same source/precision
+// the Dashboard ticks from, so the calendar and Dashboard stay in sync (no minute-floor gap).
+const fmtHMS = (totalSecs) => {
+  const s = Math.max(0, Math.floor(totalSecs));
+  return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+};
+const fmtHM = (totalSecs) => {
+  const s = Math.max(0, Math.floor(totalSecs));
+  return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`;
+};
+const LiveWork = ({ baseSeconds, isLive, fetchedAt, fallback }) => {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!isLive) return;
+    const id = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [isLive]);
+  const base = Number(baseSeconds) || 0;
+  if (!isLive) return <>{base > 0 ? fmtHM(base) : (fallback || '0h 00m')}</>;
+  const live = base + Math.max(0, (Date.now() - (fetchedAt || Date.now())) / 1000);
+  return <>{fmtHMS(live)}</>;
+};
+
 // Detailed single-employee view: summary panel + per-day status grid with times.
-const IndividualCalendar = ({ emp, records, specialEvents, weeks, month, year, todayStr }) => {
+const IndividualCalendar = ({ emp, records, specialEvents, weeks, month, year, todayStr, fetchedAt }) => {
   const recs = records[emp.id] || {};
   const fmtTime = (iso) => { try { return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }); } catch { return ''; } };
 
@@ -149,7 +173,11 @@ const IndividualCalendar = ({ emp, records, specialEvents, weeks, month, year, t
                             <p className="text-[9px] mt-0.5 leading-tight truncate font-mono" style={{ color: cfg.color }}>
                               {r.check_in ? fmtTime(r.check_in) : '—'} → {r.check_out ? fmtTime(r.check_out) : (r.is_checked_in ? 'In' : 'Missed')}
                             </p>
-                            {r.workHours && <p className="text-[10px] font-bold leading-tight" style={{ color: cfg.color }}>{r.workHours}</p>}
+                            {(r.is_checked_in || r.net_work_seconds > 0 || r.workHours) && (
+                              <p className="text-[10px] font-bold leading-tight font-mono" style={{ color: cfg.color }}>
+                                <LiveWork baseSeconds={r.net_work_seconds} isLive={r.is_checked_in} fetchedAt={fetchedAt} fallback={r.workHours} />
+                              </p>
+                            )}
                           </>
                         ) : (sub && <p className="text-[9px] mt-0.5 truncate" style={{ color: cfg.color }}>{sub}</p>)}
                       </div>
@@ -171,6 +199,7 @@ const AttendanceCalendar = () => {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
   const [data, setData] = useState(null);
+  const [fetchedAt, setFetchedAt] = useState(Date.now()); // when `data` was last fetched — base for the live work ticker
   const [loading, setLoading] = useState(true);
   const [visibleEmps, setVisibleEmps] = useState({});
   const [detailPopup, setDetailPopup] = useState(null); // { type: 'day', dateStr, records } or { type: 'entry', emp, dateStr, rec }
@@ -196,6 +225,7 @@ const AttendanceCalendar = () => {
         }
       }
       setData(resData);
+      setFetchedAt(Date.now());
       // Only on the initial (non-silent) load: default to a SINGLE employee so
       // the calendar opens in the detailed individual view. A silent poll must
       // never clobber whatever employee the user is currently viewing.
@@ -388,7 +418,7 @@ const AttendanceCalendar = () => {
             <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" />
           </div>
         ) : individual ? (
-          <IndividualCalendar emp={individual} records={data.records} specialEvents={data.specialEvents || {}} weeks={weeks} month={month} year={year} todayStr={todayStr} />
+          <IndividualCalendar emp={individual} records={data.records} specialEvents={data.specialEvents || {}} weeks={weeks} month={month} year={year} todayStr={todayStr} fetchedAt={fetchedAt} />
         ) : (
           <div className="flex-1 overflow-y-auto">
             <table className="w-full border-collapse table-fixed">

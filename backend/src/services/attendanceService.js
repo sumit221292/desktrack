@@ -1176,6 +1176,7 @@ const getMonthlyAttendance = async (companyId, month, year) => {
         check_out: checkOutDate ? checkOutDate.toISOString() : null,
         is_checked_in: isCheckedIn,
         net_work_minutes: netMins,
+        net_work_seconds: daily_attendance.net_work_seconds || 0,  // accurate session-based seconds (same source the Dashboard ticks from)
         total_break_minutes: breakMins,
         workHours: netMins > 0 ? fmtTime(netMins) : (isCheckedIn ? 'In Progress' : '0h 00m'),
         breakTime: fmtTime(breakMins),
