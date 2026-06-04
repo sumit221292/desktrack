@@ -718,8 +718,11 @@ const updateAttendance = async (attendanceId, companyId, updates) => {
   let record;
   let employeeId;
 
-  if (String(attendanceId).startsWith('dummy-')) {
-    employeeId = parseInt(attendanceId.split('-')[1]);
+  // `dummy-<id>` / `no-ref-<id>` are SYNTHETIC ids the daily list uses for an employee
+  // with no record yet. Editing such a row is a manual override that CREATES the record,
+  // so derive the employee from the id (trailing number) and skip the row lookup.
+  if (String(attendanceId).startsWith('dummy-') || String(attendanceId).startsWith('no-ref-')) {
+    employeeId = parseInt(String(attendanceId).split('-').pop(), 10);
   } else {
     const attResult = await query(
       'SELECT a.*, s.shift_start_time, s.shift_end_time, s.total_working_hours, s.grace_minutes, s.late_start_time, s.late_end_time, s.overlate_start_time, s.halfday_start_time FROM attendance a JOIN employee_shifts es ON a.employee_id = es.employee_id JOIN shifts s ON es.shift_id = s.id WHERE a.id = $1 AND a.company_id = $2',
