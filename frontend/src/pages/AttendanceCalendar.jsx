@@ -129,6 +129,10 @@ const IndividualCalendar = ({ emp, records, specialEvents, weeks, month, year, t
                 const isWeekend = di === 0 || di === 6;
                 const isToday = ds === todayStr;
                 const isAttend = ['PRESENT', 'ON TIME', 'COMPLETE', 'LATE', 'OVER LATE', 'OVERLATE', 'HALF DAY', 'HALFDAY'].includes(s);
+                // Show the actual check-in → check-out + work time whenever there IS a
+                // check-in — even on an ABSENT day (came in but left before the half-shift
+                // mark) — so the person's activity is visible, not just a bare "Absent".
+                const hasActivity = isAttend || !!r.check_in;
                 // Non-attend sub-line (leave code / holiday name)
                 const sub = s === 'LEAVE' ? (r.leaveCode || 'Leave')
                   : s === 'OFFICE HOLIDAY' ? ((specialEvents[ds] || []).find(e => e.type === 'holiday')?.name || '') : null;
@@ -140,10 +144,10 @@ const IndividualCalendar = ({ emp, records, specialEvents, weeks, month, year, t
                     {s !== '-' && (
                       <div className="rounded-md px-1 py-1 text-center" style={{ background: cfg.bg, border: `1px solid ${cfg.border}` }}>
                         <p className="text-[11px] font-bold leading-tight truncate" style={{ color: cfg.color }}>{cfg.label}</p>
-                        {isAttend ? (
+                        {hasActivity ? (
                           <>
                             <p className="text-[9px] mt-0.5 leading-tight truncate font-mono" style={{ color: cfg.color }}>
-                              {r.check_in ? fmtTime(r.check_in) : '—'} → {r.check_out ? fmtTime(r.check_out) : 'Missed'}
+                              {r.check_in ? fmtTime(r.check_in) : '—'} → {r.check_out ? fmtTime(r.check_out) : (r.is_checked_in ? 'In' : 'Missed')}
                             </p>
                             {r.workHours && <p className="text-[10px] font-bold leading-tight" style={{ color: cfg.color }}>{r.workHours}</p>}
                           </>
@@ -466,7 +470,7 @@ const AttendanceCalendar = () => {
                                   style={{ backgroundColor: s.bg, color: s.color, borderLeft: `3px solid ${s.color}` }}
                                   title={`${emp.name}: ${s.label}${rec.workHours ? ' | ' + rec.workHours : ''}`}
                                 >
-                                  {emp.name.split(' ')[0]} - {s.short}{rec.workHours && rec.status !== 'ABSENT' && rec.status !== 'WEEKEND' ? ` ${rec.workHours}` : ''}
+                                  {emp.name.split(' ')[0]} - {s.short}{rec.workHours && rec.check_in && rec.status !== 'WEEKEND' ? ` ${rec.workHours}` : ''}
                                 </div>
                               );
                             })}
@@ -541,7 +545,7 @@ const AttendanceCalendar = () => {
                           </p>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          {rec.workHours && rec.status !== 'ABSENT' && rec.status !== 'WEEKEND' && rec.status !== '-' && (
+                          {rec.workHours && rec.check_in && rec.status !== 'WEEKEND' && rec.status !== '-' && (
                             <span className="text-[11px] font-medium text-slate-500">{rec.workHours}</span>
                           )}
                           <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold"
