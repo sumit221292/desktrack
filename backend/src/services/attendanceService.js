@@ -1124,32 +1124,47 @@ const getMonthlyAttendance = async (companyId, month, year) => {
         continue;
       }
 
-      const checkInDate = new Date(att.check_in);
-      const lastOut = att.last_check_out || att.check_out;
-
-      // Status: arrival label, then the presence-based decision from stored flags
-      // (HALFDAY / ABSENT are written by the engine + closeMissedCheckouts).
       const attFlags = att.flags ? (typeof att.flags === 'string' ? JSON.parse(att.flags) : att.flags) : [];
-      const arrStatus = att.arrival_status || '';
-      let displayStatus = arrStatus === 'late' ? 'LATE' : arrStatus === 'overlate' ? 'OVER LATE' : 'PRESENT';
-      if (attFlags.includes('ABSENT')) displayStatus = 'ABSENT';
-      else if (attFlags.includes('HALFDAY')) displayStatus = 'HALF DAY';
 
-      // Recompute work/break time LIVE from this day's sessions + events (same engine and
-      // inputs as getDailyAttendance) so the calendar matches the Dashboard/Attendance views.
+      // Sessions/events are the SOURCE OF TRUTH. The attendance header columns
+      // (check_in / check_out / flags) can go STALE when a day is re-opened — e.g. a
+      // re-check-in after an earlier checkout leaves the old check_in + an ABSENT flag
+      // behind even though the person is now working. So derive the calendar's
+      // check-in/out, work time AND status from the live sessions (the same engine the
+      // Dashboard/daily view uses), not from the header.
       const dayKey = `${emp.id}|${dateStr}`;
-      const empDaySessions = sessionsByEmpDay[dayKey] || [];
+      const empDaySessions = (sessionsByEmpDay[dayKey] || []).slice().sort((a, b) => new Date(a.check_in) - new Date(b.check_in));
       const empDayEvents = eventsByEmpDay[dayKey] || [];
+      const hasSessions = empDaySessions.length > 0;
       const isCheckedIn = empDaySessions.some(s => s.check_out === null || s.check_out === undefined);
-      // If the latest session is still open, the stale last_check_out must NOT be treated as
-      // a checkout (employee is currently IN) — mirrors getDailyAttendance.
-      const checkOutDate = (lastOut && !isCheckedIn) ? new Date(lastOut) : null;
-      const missedCheckout = attFlags.includes('MISSED_CHECKOUT');
+
+      const checkInDate = hasSessions ? new Date(empDaySessions[0].check_in) : new Date(att.check_in);
+      const lastSessOut = (hasSessions && !isCheckedIn) ? empDaySessions[empDaySessions.length - 1].check_out : null;
+      const headerOut = att.last_check_out || att.check_out;
+      // While checked in, ignore any stale header checkout — the employee is currently IN.
+      const checkOutDate = isCheckedIn ? null : (lastSessOut ? new Date(lastSessOut) : (headerOut ? new Date(headerOut) : null));
+      const missedCheckout = attFlags.includes('MISSED_CHECKOUT') && !isCheckedIn;
 
       const { daily_attendance } = calculateAttendance(
         { ...shift, employee_id: emp.id, timezone: companyTz, lunch_allowed_minutes: brkCfg.lunch_allowed_minutes || 45, tea_allowed_minutes: brkCfg.tea_allowed_minutes || 15 },
         checkInDate, checkOutDate, empDayEvents, empDaySessions, { missed: missedCheckout }
       );
+
+      // Status from the LIVE recompute, not the (possibly stale) stored flags. A day
+      // with someone currently checked in is never "Absent" — show the arrival-based
+      // present status. With sessions present we trust the recomputed day_status; only
+      // historical rows that have no sessions fall back to the stored flags.
+      const arrival = daily_attendance.arrival_status || att.arrival_status || 'on_time';
+      const base = arrival === 'late' ? 'LATE' : arrival === 'overlate' ? 'OVER LATE' : 'PRESENT';
+      let displayStatus;
+      if (isCheckedIn) {
+        displayStatus = base;
+      } else if (hasSessions) {
+        const ds = daily_attendance.day_status;
+        displayStatus = ds === 'ABSENT' ? 'ABSENT' : ds === 'HALF DAY' ? 'HALF DAY' : base;
+      } else {
+        displayStatus = attFlags.includes('ABSENT') ? 'ABSENT' : attFlags.includes('HALFDAY') ? 'HALF DAY' : base;
+      }
 
       const netMins = daily_attendance.net_work_minutes || 0;
       const breakMins = daily_attendance.total_break_minutes || 0;
@@ -1158,14 +1173,14 @@ const getMonthlyAttendance = async (companyId, month, year) => {
       records[emp.id][dateStr] = {
         status: displayStatus,
         check_in: checkInDate.toISOString(),
-        check_out: lastOut || null,
+        check_out: checkOutDate ? checkOutDate.toISOString() : null,
         is_checked_in: isCheckedIn,
         net_work_minutes: netMins,
         total_break_minutes: breakMins,
         workHours: netMins > 0 ? fmtTime(netMins) : (isCheckedIn ? 'In Progress' : '0h 00m'),
         breakTime: fmtTime(breakMins),
         remarks: att.remarks || '',
-        arrival_status: att.arrival_status || 'on_time'
+        arrival_status: arrival
       };
     }
   }
