@@ -95,7 +95,7 @@ const SalarySlip = ({ data, company, formatCurrency, currencyConfig }) => {
     ['TDS', data.tds],
     ...(data.customDeductions || []).map(cd => [cd.label, cd.amount]),
   ].filter(r => parseFloat(r[1]) > 0);
-  if (leaveDeduction > 0) dedRows.push(['Leave Deduction', leaveDeduction]);
+  if (leaveDeduction > 0) dedRows.push(['Loss of Pay (LOP)', leaveDeduction]);
   const dedTotal = dedRows.reduce((s, r) => s + (parseFloat(r[1]) || 0), 0);
   const net = incomeTotal - dedTotal; // == data.net_salary (balanced by construction)
 
@@ -104,7 +104,10 @@ const SalarySlip = ({ data, company, formatCurrency, currencyConfig }) => {
     return b ? b.remaining : 0;
   };
   const leavesTaken = (parseFloat(data.paid_leave_days) || 0) + (parseFloat(data.unpaid_leave_days) || 0);
-  const lopDays = (parseFloat(data.absent_days) || 0) + (parseFloat(data.unpaid_leave_days) || 0);
+  // LOP days = every working day not paid for: absences + unpaid leave + half-day
+  // shortfalls. Defined as Total Working − Payable so it always reconciles with the
+  // "Loss of Pay (LOP)" deduction (perDay × this) shown in the Deductions column.
+  const lopDays = Math.max(0, Math.round(((parseFloat(data.total_working_days) || 0) - (parseFloat(data.payable_days) || 0)) * 100) / 100);
   const daysInMonth = new Date(data.year || 2000, data.month || 1, 0).getDate();
 
   const leftInfo = [
@@ -121,7 +124,7 @@ const SalarySlip = ({ data, company, formatCurrency, currencyConfig }) => {
     ['Date of Joining', fmtDate(data.joining_date)],
     ['Days in Month', daysInMonth],
     ['Total Working Days', data.total_working_days || 0],
-    ['Working Days Attended', data.payable_days || 0],
+    ['Payable Days', data.payable_days || 0],
     ['LOP Days', lopDays],
     ['Leaves Taken (month)', leavesTaken],
     ['CL Balance', balByCode('CL')],

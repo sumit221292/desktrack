@@ -420,8 +420,10 @@ const runPayroll = async (req, res) => {
       // Earned gross = per-day × payable days (prorated)
       const earnedGross = Math.round(perDaySalary * att.payableDays * 100) / 100;
 
-      // LOP (Loss of Pay) = per-day × (absent + unpaid leave)
-      const lopDays = att.absentDays + att.unpaidLeaveDays;
+      // LOP (Loss of Pay) = per-day × every unpaid working day. This is the FULL
+      // shortfall — absences + unpaid leave + half-day shortfalls — i.e. (Total − Payable),
+      // so lop_amount always equals fullGross − earnedGross (the cut shown on the slip).
+      const lopDays = att.totalWorkingDays - att.payableDays;
       const lopAmount = Math.round(perDaySalary * lopDays * 100) / 100;
 
       // Prorate individual components based on payable ratio
