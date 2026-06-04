@@ -756,7 +756,16 @@ const updateAttendance = async (attendanceId, companyId, updates) => {
     [attendanceId]
   );
 
-  const { daily_attendance } = calculateAttendance(shift, checkInTime, checkOutTime, eventsResult.rows, sessionsResult.rows);
+  // A manual override sets check-in/out but has no work session of its own. The whole app
+  // computes work/status from SESSIONS, so without one the override reads as 0h / Absent
+  // everywhere. If the day has no session yet, synthesize ONE spanning the override
+  // (check-in → check-out) — used for the stored totals AND persisted below, so every view
+  // (calendar, list, dashboard) recomputes it identically.
+  const noSessions = sessionsResult.rows.length === 0;
+  const overrideSession = (noSessions && checkInTime) ? [{ check_in: checkInTime, check_out: checkOutTime }] : null;
+  const sessionsForCalc = overrideSession || sessionsResult.rows;
+
+  const { daily_attendance } = calculateAttendance(shift, checkInTime, checkOutTime, eventsResult.rows, sessionsForCalc);
   const { net_work_minutes, overtime_minutes, status, flags } = daily_attendance;
   const workingHours = parseFloat((net_work_minutes / 60).toFixed(2));
   const overtimeHours = parseFloat((overtime_minutes / 60).toFixed(2));
@@ -803,6 +812,19 @@ const updateAttendance = async (attendanceId, companyId, updates) => {
         attendanceId,
         companyId
       ]
+    );
+  }
+
+  // Persist the synthesized override session so the session-based views (calendar / list /
+  // dashboard) recompute the override identically — work hours, FULL/HALF/ABSENT status,
+  // and check-in/out all derive from this one session.
+  if (overrideSession) {
+    const recId = result.rows[0].id;
+    const dur = checkOutTime ? Math.max(1, Math.ceil((checkOutTime - checkInTime) / 60000)) : null;
+    await query(
+      `INSERT INTO attendance_sessions (attendance_id, company_id, employee_id, check_in, check_out, duration_minutes)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [recId, companyId, employeeId, checkInTime, checkOutTime, dur]
     );
   }
 
