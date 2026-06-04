@@ -841,12 +841,12 @@ const db = {
 
         // [LEAVE TYPES]
         else if (q.includes('insert into leave_types')) {
-          const lt = { id: (memoryDB.leave_types || []).length > 0 ? Math.max(...memoryDB.leave_types.map(l=>l.id))+1 : 1, company_id: params[0], name: params[1], code: params[2], annual_quota: parseInt(params[3])||0, carry_forward: params[4]||false, created_at: new Date() };
+          const lt = { id: (memoryDB.leave_types || []).length > 0 ? Math.max(...memoryDB.leave_types.map(l=>l.id))+1 : 1, company_id: params[0], name: params[1], code: params[2], annual_quota: parseInt(params[3])||0, carry_forward: params[4]||false, accrual_frequency: params[5]||'annual', created_at: new Date() };
           memoryDB.leave_types.push(lt); saveToDisk(); resultRows = [lt]; rowCount = 1;
         }
         else if (q.includes('update leave_types')) {
-          const idx = memoryDB.leave_types.findIndex(l => l.id == params[4] && l.company_id == params[5]);
-          if (idx !== -1) { Object.assign(memoryDB.leave_types[idx], { name: params[0], code: params[1], annual_quota: parseInt(params[2])||0, carry_forward: params[3]||false }); saveToDisk(); resultRows = [memoryDB.leave_types[idx]]; rowCount = 1; }
+          const idx = memoryDB.leave_types.findIndex(l => l.id == params[5] && l.company_id == params[6]);
+          if (idx !== -1) { Object.assign(memoryDB.leave_types[idx], { name: params[0], code: params[1], annual_quota: parseInt(params[2])||0, carry_forward: params[3]||false, accrual_frequency: params[4]||'annual' }); saveToDisk(); resultRows = [memoryDB.leave_types[idx]]; rowCount = 1; }
         }
         else if (q.includes('delete from leave_types')) {
           memoryDB.leave_types = memoryDB.leave_types.filter(l => !(l.id == params[0] && l.company_id == params[1])); saveToDisk(); rowCount = 1;
@@ -1513,6 +1513,7 @@ async function runMigrations() {
           code VARCHAR(10) NOT NULL,
           annual_quota INTEGER DEFAULT 0,
           carry_forward BOOLEAN DEFAULT FALSE,
+          accrual_frequency VARCHAR(10) DEFAULT 'annual',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -1635,6 +1636,8 @@ async function runMigrations() {
         await pool.query('ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS unpaid_leave_days DECIMAL(5,2) DEFAULT 0');
         await pool.query('ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS payable_days DECIMAL(5,2) DEFAULT 0');
         await pool.query('ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS lop_amount DECIMAL(12,2) DEFAULT 0');
+        // leave_types — accrual mode ('annual' upfront | 'monthly' = annual_quota/12 per month)
+        await pool.query("ALTER TABLE leave_types ADD COLUMN IF NOT EXISTS accrual_frequency VARCHAR(10) DEFAULT 'annual'");
       } catch (e) { /* already exists */ }
 
       // shifts — add lunch/tea allowed minutes and max break

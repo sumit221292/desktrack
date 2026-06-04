@@ -1,5 +1,25 @@
 const { query } = require('../config/db');
 
+// ─── Accrual (computed, no cron) ───
+// IST month/year so accrual lines up with the rest of the app's IST-anchored dates.
+const istParts = () => {
+  const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit' }).formatToParts(new Date());
+  const get = (t) => parseInt(p.find(x => x.type === t).value, 10);
+  return { year: get('year'), month: get('month') }; // month 1..12
+};
+// Days EARNED so far for a leave type in a given balance year.
+//  - 'annual'  → full quota upfront (current behaviour).
+//  - 'monthly' → quota/12 per month, available at the START of each month
+//    (Jan→1 … Jun→6 … Dec→12). Past years fully accrued; future years none.
+const accruedToDate = (type, balanceYear) => {
+  const quota = parseInt(type.annual_quota) || 0;
+  if ((type.accrual_frequency || 'annual') !== 'monthly') return quota;
+  const { year, month } = istParts();
+  if (balanceYear < year) return quota;
+  if (balanceYear > year) return 0;
+  return Math.min(quota, Math.floor((quota * month) / 12));
+};
+
 // ─── Leave Types ───
 const getLeaveTypes = async (req, res) => {
   try {
@@ -12,11 +32,12 @@ const getLeaveTypes = async (req, res) => {
 };
 
 const createLeaveType = async (req, res) => {
-  const { name, code, annual_quota, carry_forward } = req.body;
+  const { name, code, annual_quota, carry_forward, accrual_frequency } = req.body;
+  const accrual = accrual_frequency === 'monthly' ? 'monthly' : 'annual';
   try {
     const result = await query(
-      'INSERT INTO leave_types (company_id, name, code, annual_quota, carry_forward) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [req.tenantId, name, code, annual_quota || 0, carry_forward || false]
+      'INSERT INTO leave_types (company_id, name, code, annual_quota, carry_forward, accrual_frequency) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [req.tenantId, name, code, annual_quota || 0, carry_forward || false, accrual]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -26,11 +47,12 @@ const createLeaveType = async (req, res) => {
 };
 
 const updateLeaveType = async (req, res) => {
-  const { name, code, annual_quota, carry_forward } = req.body;
+  const { name, code, annual_quota, carry_forward, accrual_frequency } = req.body;
+  const accrual = accrual_frequency === 'monthly' ? 'monthly' : 'annual';
   try {
     const result = await query(
-      'UPDATE leave_types SET name = $1, code = $2, annual_quota = $3, carry_forward = $4 WHERE id = $5 AND company_id = $6 RETURNING *',
-      [name, code, annual_quota || 0, carry_forward || false, req.params.id, req.tenantId]
+      'UPDATE leave_types SET name = $1, code = $2, annual_quota = $3, carry_forward = $4, accrual_frequency = $5 WHERE id = $6 AND company_id = $7 RETURNING *',
+      [name, code, annual_quota || 0, carry_forward || false, accrual, req.params.id, req.tenantId]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Not found.' });
     res.json(result.rows[0]);
@@ -108,17 +130,23 @@ const applyLeave = async (req, res) => {
     }
     if (days < 1) days = 1;
 
-    // Check balance
+    // Check balance against what's ACCRUED so far (monthly types earn quota/12 per month;
+    // annual types are fully accrued, so available === remaining for them). Unpaid leave
+    // (quota 0) is never balance-checked.
     const year = start.getFullYear();
     const balResult = await query(
       'SELECT * FROM leave_balances WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3 AND company_id = $4',
       [employeeId, leave_type_id, year, req.tenantId]
     );
-    if (balResult.rows.length > 0 && balResult.rows[0].remaining < days) {
-      // Allow if it's unpaid leave (quota=0)
-      const ltResult = await query('SELECT * FROM leave_types WHERE id = $1', [leave_type_id]);
-      if (ltResult.rows.length > 0 && ltResult.rows[0].annual_quota > 0) {
-        return res.status(400).json({ error: `Insufficient balance. Available: ${balResult.rows[0].remaining} days.` });
+    const ltResult = await query('SELECT * FROM leave_types WHERE id = $1 AND company_id = $2', [leave_type_id, req.tenantId]);
+    const lt = ltResult.rows[0];
+    if (lt && (parseInt(lt.annual_quota) || 0) > 0 && balResult.rows.length > 0) {
+      const used = parseInt(balResult.rows[0].used) || 0;
+      const available = Math.max(0, accruedToDate(lt, year) - used);
+      if (days > available) {
+        const rate = (parseInt(lt.annual_quota) || 0) / 12;
+        const note = lt.accrual_frequency === 'monthly' ? ` (accrues ${rate % 1 === 0 ? rate : rate.toFixed(2)}/month)` : '';
+        return res.status(400).json({ error: `Insufficient balance. Available now: ${available} day(s)${note}.` });
       }
     }
 
@@ -186,7 +214,8 @@ const getLeaveBalances = async (req, res) => {
       const emp = await query('SELECT id FROM employees WHERE email = (SELECT email FROM users WHERE id = $1) AND company_id = $2', [req.user.id, req.tenantId]);
       employeeId = emp.rows[0]?.id || -1;
     }
-    let sql = `SELECT lb.*, lt.name as leave_type_name, lt.code as leave_type_code, e.first_name, e.last_name
+    let sql = `SELECT lb.*, lt.name as leave_type_name, lt.code as leave_type_code,
+                      lt.annual_quota, lt.accrual_frequency, e.first_name, e.last_name
                FROM leave_balances lb
                LEFT JOIN leave_types lt ON lb.leave_type_id = lt.id
                LEFT JOIN employees e ON lb.employee_id = e.id
@@ -194,10 +223,18 @@ const getLeaveBalances = async (req, res) => {
     const p = [req.tenantId, year];
     if (employeeId) { sql += ' AND lb.employee_id = $3'; p.push(employeeId); }
     const result = await query(sql, p);
-    const rows = result.rows.map(r => ({
-      ...r,
-      employee_name: r.employee_name || `${r.first_name || ''} ${r.last_name || ''}`.trim() || `Emp #${r.employee_id}`
-    }));
+    const rows = result.rows.map(r => {
+      // accrued = days earned so far (monthly types ramp up over the year; annual = full quota).
+      // available = accrued − used (for annual types this equals `remaining`).
+      const accrued = accruedToDate({ annual_quota: r.annual_quota, accrual_frequency: r.accrual_frequency }, parseInt(r.year));
+      const available = Math.max(0, accrued - (parseInt(r.used) || 0));
+      return {
+        ...r,
+        accrued,
+        available,
+        employee_name: r.employee_name || `${r.first_name || ''} ${r.last_name || ''}`.trim() || `Emp #${r.employee_id}`
+      };
+    });
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: 'Server error.' });

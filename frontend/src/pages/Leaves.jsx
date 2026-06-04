@@ -33,7 +33,7 @@ const Leaves = () => {
   const [showApply, setShowApply] = useState(false);
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [applyForm, setApplyForm] = useState({ leave_type_id: '', start_date: '', end_date: '', reason: '' });
-  const [typeForm, setTypeForm] = useState({ name: '', code: '', annual_quota: 12, carry_forward: false });
+  const [typeForm, setTypeForm] = useState({ name: '', code: '', annual_quota: 12, carry_forward: false, accrual_frequency: 'annual' });
   const [editingType, setEditingType] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -132,7 +132,7 @@ const Leaves = () => {
       }
       setShowTypeModal(false);
       setEditingType(null);
-      setTypeForm({ name: '', code: '', annual_quota: 12, carry_forward: false });
+      setTypeForm({ name: '', code: '', annual_quota: 12, carry_forward: false, accrual_frequency: 'annual' });
       await fetchData();
     } catch (err) { alert('Failed to save leave type'); }
   };
@@ -173,7 +173,7 @@ const Leaves = () => {
           {isHR && (
             <>
               <Button variant="secondary" onClick={handleInitBalances} className="gap-2 text-xs"><RefreshCw size={14} /> Init Balances</Button>
-              <Button variant="secondary" onClick={() => { setEditingType(null); setTypeForm({ name: '', code: '', annual_quota: 12, carry_forward: false }); setShowTypeModal(true); }} className="gap-2 text-xs"><Settings size={14} /> Manage Types</Button>
+              <Button variant="secondary" onClick={() => { setEditingType(null); setTypeForm({ name: '', code: '', annual_quota: 12, carry_forward: false, accrual_frequency: 'annual' }); setShowTypeModal(true); }} className="gap-2 text-xs"><Settings size={14} /> Manage Types</Button>
             </>
           )}
           <Button onClick={() => setShowApply(true)} className="gap-2"><Plus size={16} /> Apply Leave</Button>
@@ -253,7 +253,7 @@ const Leaves = () => {
                         const bal = empBals.find(b => b.leave_type_id === lt.id);
                         return (
                           <td key={lt.id} className="px-4 py-3 text-center">
-                            {bal ? <span className="text-xs"><span className="font-bold text-emerald-700">{bal.remaining}</span><span className="text-slate-400">/{bal.total}</span></span> : <span className="text-slate-300">-</span>}
+                            {bal ? <span className="text-xs" title={`Available ${bal.available ?? bal.remaining} · Accrued ${bal.accrued ?? bal.total} · Annual ${bal.total} · Used ${bal.used}`}><span className="font-bold text-emerald-700">{bal.available ?? bal.remaining}</span><span className="text-slate-400">/{bal.total}</span></span> : <span className="text-slate-300">-</span>}
                           </td>
                         );
                       })}
@@ -384,10 +384,11 @@ const Leaves = () => {
                   <Badge variant="default" className="text-xs font-bold">{lt.code}</Badge>
                   <span className="font-medium text-slate-800 text-sm">{lt.name}</span>
                   <span className="text-xs text-slate-400">{lt.annual_quota} days/year</span>
+                  {lt.accrual_frequency === 'monthly' && <span className="text-[10px] bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded font-bold" title={`Earns ${lt.annual_quota > 0 ? +(lt.annual_quota / 12).toFixed(2) : 0}/month`}>{lt.annual_quota > 0 ? +(lt.annual_quota / 12).toFixed(2) : 0}/mo</span>}
                   {lt.carry_forward && <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-bold">Carry Forward</span>}
                 </div>
                 <div className="flex items-center gap-1">
-                  <button onClick={() => { setEditingType(lt); setTypeForm({ name: lt.name, code: lt.code, annual_quota: lt.annual_quota, carry_forward: lt.carry_forward }); }} className="text-xs text-primary-600 hover:underline font-bold px-2 py-1">Edit</button>
+                  <button onClick={() => { setEditingType(lt); setTypeForm({ name: lt.name, code: lt.code, annual_quota: lt.annual_quota, carry_forward: lt.carry_forward, accrual_frequency: lt.accrual_frequency || 'annual' }); }} className="text-xs text-primary-600 hover:underline font-bold px-2 py-1">Edit</button>
                   <button onClick={() => handleDeleteType(lt.id)} className="text-xs text-red-500 hover:underline font-bold px-2 py-1">Delete</button>
                 </div>
               </div>
@@ -399,10 +400,23 @@ const Leaves = () => {
               <div><label className="text-xs font-bold text-slate-700 mb-1 block">Name *</label><Input required value={typeForm.name} onChange={e => setTypeForm({ ...typeForm, name: e.target.value })} placeholder="e.g. Sick Leave" /></div>
               <div><label className="text-xs font-bold text-slate-700 mb-1 block">Code *</label><Input required value={typeForm.code} onChange={e => setTypeForm({ ...typeForm, code: e.target.value.toUpperCase() })} placeholder="e.g. SL" maxLength={5} /></div>
               <div><label className="text-xs font-bold text-slate-700 mb-1 block">Annual Quota</label><Input type="number" min="0" value={typeForm.annual_quota} onChange={e => setTypeForm({ ...typeForm, annual_quota: parseInt(e.target.value) || 0 })} /></div>
+              <div>
+                <label className="text-xs font-bold text-slate-700 mb-1 block">Accrual</label>
+                <select value={typeForm.accrual_frequency} onChange={e => setTypeForm({ ...typeForm, accrual_frequency: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm font-medium focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500">
+                  <option value="annual">Annual (full upfront)</option>
+                  <option value="monthly">Monthly (earns each month)</option>
+                </select>
+              </div>
               <div className="flex items-end pb-2"><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={typeForm.carry_forward} onChange={e => setTypeForm({ ...typeForm, carry_forward: e.target.checked })} className="w-4 h-4 rounded border-slate-300 text-primary-600" /><span className="text-sm font-medium text-slate-700">Carry Forward</span></label></div>
             </div>
+            {typeForm.accrual_frequency === 'monthly' && (
+              <p className="text-[11px] text-blue-600 bg-blue-50 px-2.5 py-1.5 rounded-lg">
+                Earns {typeForm.annual_quota > 0 ? +(typeForm.annual_quota / 12).toFixed(2) : 0}/month, available from the start of each month ({typeForm.annual_quota || 0}/year). Unused lapses each year.
+              </p>
+            )}
             <div className="flex justify-end gap-3">
-              {editingType && <Button variant="ghost" type="button" onClick={() => { setEditingType(null); setTypeForm({ name: '', code: '', annual_quota: 12, carry_forward: false }); }}>Cancel Edit</Button>}
+              {editingType && <Button variant="ghost" type="button" onClick={() => { setEditingType(null); setTypeForm({ name: '', code: '', annual_quota: 12, carry_forward: false, accrual_frequency: 'annual' }); }}>Cancel Edit</Button>}
               <Button type="submit">{editingType ? 'Update Type' : 'Add Type'}</Button>
             </div>
           </form>
