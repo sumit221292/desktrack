@@ -1116,10 +1116,10 @@ const getMonthlyAttendance = async (companyId, month, year) => {
           records[emp.id][dateStr] = { status: 'OFFICE HOLIDAY' };   // company holiday
         } else if (lv) {
           records[emp.id][dateStr] = { status: lv.paid ? 'LEAVE' : 'LOP', leaveCode: lv.code };
-        } else if (dateStr > today) {
-          records[emp.id][dateStr] = { status: '-' };                 // future working day
+        } else if (dateStr >= today) {
+          records[emp.id][dateStr] = { status: '-' };                 // today (in progress) or future — not absent yet
         } else {
-          records[emp.id][dateStr] = { status: 'ABSENT' };
+          records[emp.id][dateStr] = { status: 'ABSENT' };            // a past working day with no attendance
         }
         continue;
       }

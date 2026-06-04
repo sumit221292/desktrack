@@ -295,15 +295,17 @@ const calculateAttendanceDays = async (companyId, employeeId, month, year) => {
     else absentDays += 1;
   }
 
-  // Count working days without attendance as absent (skip weekends + holidays)
+  // Count working days without attendance as absent (skip weekends + holidays).
+  // Only PAST working days count — today is still in progress and the future hasn't
+  // happened, so neither is "absent" yet (IST calendar day, matches the calendar view).
+  const todayStr = dateInTz(new Date(), 'Asia/Kolkata');
   for (let d = 1; d <= daysInMonth; d++) {
     const dow = new Date(y, m - 1, d).getDay();
     if (dow === 0 || dow === 6) continue;
     const dateStr = dateOf(d);
     if (holidaySet.has(dateStr)) continue;
     if (!attendedDateSet.has(dateStr)) {
-      // Check if it's a future date
-      if (new Date(dateStr) <= new Date()) absentDays += 1;
+      if (dateStr < todayStr) absentDays += 1;
     }
   }
 
