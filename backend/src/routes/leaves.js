@@ -18,6 +18,7 @@ router.delete('/types/:id', checkRole(HR), c.deleteLeaveType);
 router.get('/requests', c.getLeaveRequests);
 router.post('/apply', c.applyLeave);
 router.put('/requests/:id/review', checkRole(HR), c.reviewLeave);
+router.put('/requests/:id/cancel', c.cancelLeave); // owner (any role) or HR — ownership enforced in controller
 
 // Leave Balances
 router.get('/balances', c.getLeaveBalances);

@@ -7,6 +7,8 @@ const istParts = () => {
   const get = (t) => parseInt(p.find(x => x.type === t).value, 10);
   return { year: get('year'), month: get('month') }; // month 1..12
 };
+// Today's date in IST as a YYYY-MM-DD string (for date-only comparisons).
+const istToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
 // Days EARNED so far for a leave type in a given balance year.
 //  - 'annual'  → full quota upfront (current behaviour).
 //  - 'monthly' → quota/12 per month, available at the START of each month
@@ -120,6 +122,12 @@ const applyLeave = async (req, res) => {
     if (empResult.rows.length === 0) return res.status(400).json({ error: 'Employee not found.' });
     const employeeId = empResult.rows[0].id;
 
+    // Validate the date range (date-only YYYY-MM-DD string compare; inputs are dates).
+    const sStr = String(start_date || '').slice(0, 10), eStr = String(end_date || '').slice(0, 10);
+    if (!sStr || !eStr) return res.status(400).json({ error: 'Start and end dates are required.' });
+    if (eStr < sStr) return res.status(400).json({ error: 'End date cannot be before the start date.' });
+    if (sStr < istToday()) return res.status(400).json({ error: 'Cannot apply for a past date.' });
+
     // Calculate days
     const start = new Date(start_date);
     const end = new Date(end_date);
@@ -212,6 +220,54 @@ const reviewLeave = async (req, res) => {
   }
 };
 
+// Employee revokes their OWN leave before it starts (HR may revoke any). If it was
+// APPROVED, the days are released back to the balance. Marks the request CANCELLED.
+const cancelLeave = async (req, res) => {
+  try {
+    const id = req.params.id, companyId = req.tenantId;
+    const found = await query('SELECT * FROM leave_requests WHERE id = $1 AND company_id = $2', [id, companyId]);
+    if (found.rows.length === 0) return res.status(404).json({ error: 'Not found.' });
+    const lr = found.rows[0];
+
+    // Ownership: non-HR can only revoke their own request.
+    const privileged = ['SUPER_ADMIN', 'HR'].includes(req.user.role);
+    if (!privileged) {
+      const emp = await query('SELECT id FROM employees WHERE email = (SELECT email FROM users WHERE id = $1) AND company_id = $2', [req.user.id, companyId]);
+      if ((emp.rows[0]?.id || -1) !== lr.employee_id) return res.status(403).json({ error: 'You can only revoke your own leave.' });
+    }
+
+    // Revocable only while PENDING/APPROVED and not yet started.
+    if (!['PENDING', 'APPROVED'].includes(lr.status)) return res.status(400).json({ error: `Cannot revoke a ${String(lr.status).toLowerCase()} leave.` });
+    const startStr = String(lr.start_date).slice(0, 10);
+    if (startStr <= istToday()) return res.status(400).json({ error: 'Leave has already started — contact HR.' });
+
+    const wasApproved = lr.status === 'APPROVED';
+    await query('UPDATE leave_requests SET status = $1 WHERE id = $2 AND company_id = $3', ['CANCELLED', id, companyId]);
+
+    // Release the consumed days if it had been approved.
+    if (wasApproved) {
+      const year = new Date(lr.start_date).getFullYear();
+      const bal = await query(
+        'SELECT * FROM leave_balances WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3 AND company_id = $4',
+        [lr.employee_id, lr.leave_type_id, year, companyId]
+      );
+      if (bal.rows.length > 0) {
+        const newUsed = Math.max(0, (parseInt(bal.rows[0].used) || 0) - lr.days);
+        const newRemaining = Math.max(0, (parseInt(bal.rows[0].total) || 0) - newUsed);
+        await query(
+          'INSERT INTO leave_balances (company_id, employee_id, leave_type_id, year, total, used, remaining) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (employee_id, leave_type_id, year) DO UPDATE SET used = $6, remaining = $7',
+          [companyId, lr.employee_id, lr.leave_type_id, year, bal.rows[0].total, newUsed, newRemaining]
+        );
+      }
+    }
+
+    res.json({ message: 'Revoked.' });
+  } catch (err) {
+    console.error('Cancel Leave Error:', err);
+    res.status(500).json({ error: 'Server error.' });
+  }
+};
+
 // ─── Leave Balances ───
 const getLeaveBalances = async (req, res) => {
   const year = req.query.year || new Date().getFullYear();
@@ -279,6 +335,6 @@ const initBalances = async (req, res) => {
 
 module.exports = {
   getLeaveTypes, createLeaveType, updateLeaveType, deleteLeaveType,
-  getLeaveRequests, applyLeave, reviewLeave,
+  getLeaveRequests, applyLeave, reviewLeave, cancelLeave,
   getLeaveBalances, initBalances
 };

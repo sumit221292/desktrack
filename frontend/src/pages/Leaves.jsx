@@ -13,6 +13,7 @@ const statusBadge = (s) => {
     PENDING: { tw: 'bg-amber-50 text-amber-700 border-amber-200', label: 'Pending' },
     APPROVED: { tw: 'bg-emerald-50 text-emerald-700 border-emerald-200', label: 'Approved' },
     REJECTED: { tw: 'bg-red-50 text-red-700 border-red-200', label: 'Rejected' },
+    CANCELLED: { tw: 'bg-slate-100 text-slate-500 border-slate-200', label: 'Revoked' },
   };
   const c = map[(s || '').toUpperCase()] || map.PENDING;
   return <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold border ${c.tw}`}>{c.label}</span>;
@@ -94,6 +95,9 @@ const Leaves = () => {
 
   const handleApply = async (e) => {
     e.preventDefault();
+    const today = new Date().toLocaleDateString('en-CA');
+    if (applyForm.end_date < applyForm.start_date) { alert('End date cannot be before the start date.'); return; }
+    if (applyForm.start_date < today) { alert('Cannot apply for a past date.'); return; }
     setSubmitting(true);
     try {
       await api.post('/leaves/apply', applyForm);
@@ -114,6 +118,19 @@ const Leaves = () => {
       alert(err.response?.data?.error || 'Failed');
     }
   };
+
+  // Owner (or HR) revokes a PENDING/APPROVED leave before it starts; restores balance if approved.
+  const handleCancel = async (id) => {
+    if (!window.confirm('Revoke this leave? If it was approved, the balance will be restored.')) return;
+    try {
+      await api.put(`/leaves/requests/${id}/cancel`);
+      await fetchData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to revoke leave.');
+    }
+  };
+  // A request is revocable by its owner while it's still pending/approved and hasn't started.
+  const canRevoke = (r) => ['PENDING', 'APPROVED'].includes(r.status) && String(r.start_date).slice(0, 10) > new Date().toLocaleDateString('en-CA');
 
   const handleInitBalances = async () => {
     try {
@@ -301,7 +318,7 @@ const Leaves = () => {
                   <th className="px-5 py-3 text-center border-b">Days</th>
                   <th className="px-5 py-3 text-left border-b">Reason</th>
                   <th className="px-5 py-3 text-center border-b">Status</th>
-                  {isHR && <th className="px-5 py-3 text-center border-b">Actions</th>}
+                  <th className="px-5 py-3 text-center border-b">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -316,20 +333,24 @@ const Leaves = () => {
                     <td className="px-5 py-3 text-center font-bold">{r.days}</td>
                     <td className="px-5 py-3 text-slate-600 max-w-[200px] truncate" title={r.reason}>{r.reason || '-'}</td>
                     <td className="px-5 py-3 text-center">{statusBadge(r.status)}</td>
-                    {isHR && (
-                      <td className="px-5 py-3 text-center">
-                        {r.status === 'PENDING' ? (
+                    <td className="px-5 py-3 text-center">
+                      {isHR ? (
+                        r.status === 'PENDING' ? (
                           <div className="flex items-center justify-center gap-2">
                             <button onClick={() => handleReview(r.id, 'APPROVED')} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Approve"><CheckCircle size={18} /></button>
                             <button onClick={() => handleReview(r.id, 'REJECTED')} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg" title="Reject"><XCircle size={18} /></button>
                           </div>
                         ) : r.status === 'APPROVED' ? (
                           <button onClick={() => { if (window.confirm('Reject this approved leave? The days will be added back to the balance.')) handleReview(r.id, 'REJECTED'); }} className="text-xs text-red-500 hover:underline font-bold px-2 py-1" title="Reject (undo approval — restores balance)">Reject</button>
-                        ) : (
+                        ) : r.status === 'REJECTED' ? (
                           <button onClick={() => handleReview(r.id, 'APPROVED')} className="text-xs text-emerald-600 hover:underline font-bold px-2 py-1" title="Approve">Approve</button>
-                        )}
-                      </td>
-                    )}
+                        ) : <span className="text-xs text-slate-300">—</span>
+                      ) : (
+                        canRevoke(r)
+                          ? <button onClick={() => handleCancel(r.id)} className="text-xs text-red-500 hover:underline font-bold px-2 py-1" title="Revoke (allowed before the leave starts)">Revoke</button>
+                          : <span className="text-xs text-slate-300">—</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -354,15 +375,19 @@ const Leaves = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5 block">Start Date *</label>
-              <Input type="date" required value={applyForm.start_date} onChange={e => setApplyForm({ ...applyForm, start_date: e.target.value })} />
+              <Input type="date" required min={new Date().toLocaleDateString('en-CA')} value={applyForm.start_date} onChange={e => setApplyForm({ ...applyForm, start_date: e.target.value })} />
             </div>
             <div>
               <label className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5 block">End Date *</label>
-              <Input type="date" required value={applyForm.end_date} onChange={e => setApplyForm({ ...applyForm, end_date: e.target.value })} />
+              <Input type="date" required min={applyForm.start_date || new Date().toLocaleDateString('en-CA')} value={applyForm.end_date} onChange={e => setApplyForm({ ...applyForm, end_date: e.target.value })} />
             </div>
           </div>
           {applyForm.start_date && applyForm.end_date && (
-            <div className="bg-blue-50 px-4 py-2 rounded-lg text-sm font-bold text-blue-700">{calcDays(applyForm.start_date, applyForm.end_date)} working day(s)</div>
+            applyForm.end_date < applyForm.start_date
+              ? <div className="bg-red-50 px-4 py-2 rounded-lg text-sm font-bold text-red-600">End date cannot be before the start date.</div>
+              : applyForm.start_date < new Date().toLocaleDateString('en-CA')
+                ? <div className="bg-red-50 px-4 py-2 rounded-lg text-sm font-bold text-red-600">Cannot apply for a past date.</div>
+                : <div className="bg-blue-50 px-4 py-2 rounded-lg text-sm font-bold text-blue-700">{calcDays(applyForm.start_date, applyForm.end_date)} working day(s)</div>
           )}
           <div>
             <label className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5 block">Reason</label>
