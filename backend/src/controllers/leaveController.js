@@ -41,10 +41,23 @@ const updateLeaveType = async (req, res) => {
 
 const deleteLeaveType = async (req, res) => {
   try {
-    await query('DELETE FROM leave_types WHERE id = $1 AND company_id = $2', [req.params.id, req.tenantId]);
+    const id = req.params.id, companyId = req.tenantId;
+    // A leave type is referenced by leave_requests + leave_balances (FK), so a plain
+    // DELETE fails once it's been used. Block deletion if any leave REQUESTS use it
+    // (those are history we must not orphan); otherwise drop its balance allocations
+    // (safe — re-derivable) and then the type.
+    const used = await query(
+      'SELECT COUNT(*)::int AS n FROM leave_requests WHERE leave_type_id = $1 AND company_id = $2',
+      [id, companyId]
+    );
+    if ((used.rows[0] && used.rows[0].n) > 0) {
+      return res.status(409).json({ error: `Cannot delete — ${used.rows[0].n} leave request(s) use this type. Remove or reassign them first.` });
+    }
+    await query('DELETE FROM leave_balances WHERE leave_type_id = $1 AND company_id = $2', [id, companyId]);
+    await query('DELETE FROM leave_types WHERE id = $1 AND company_id = $2', [id, companyId]);
     res.json({ message: 'Deleted.' });
   } catch (err) {
-    res.status(500).json({ error: 'Server error.' });
+    res.status(500).json({ error: err.message || 'Server error.' });
   }
 };
 

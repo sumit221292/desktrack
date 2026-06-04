@@ -139,7 +139,8 @@ const Leaves = () => {
 
   const handleDeleteType = async (id) => {
     if (!window.confirm('Delete this leave type?')) return;
-    try { await api.delete(`/leaves/types/${id}`); await fetchData(); } catch { alert('Failed'); }
+    try { await api.delete(`/leaves/types/${id}`); await fetchData(); }
+    catch (e) { alert(e?.response?.data?.error || 'Failed to delete leave type.'); }
   };
 
   const calcDays = (start, end) => {
