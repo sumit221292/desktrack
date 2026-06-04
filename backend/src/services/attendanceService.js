@@ -771,8 +771,14 @@ const updateAttendance = async (attendanceId, companyId, updates) => {
   // everywhere. If the day has no session yet, synthesize ONE spanning the override
   // (check-in → check-out) — used for the stored totals AND persisted below, so every view
   // (calendar, list, dashboard) recomputes it identically.
+  // A manual time override (admin supplied check-in/out) with NO break events is rebuilt as
+  // ONE authoritative session from the given times — so re-edits and past-day / last-month
+  // edits recompute correctly instead of keeping a stale session. Days that have real break
+  // events keep their sessions untouched (we don't clobber genuine worked time).
+  const manualTimes = !!(updates.check_in || updates.check_out);
   const noSessions = sessionsResult.rows.length === 0;
-  const overrideSession = (noSessions && checkInTime) ? [{ check_in: checkInTime, check_out: checkOutTime }] : null;
+  const rebuild = noSessions || (manualTimes && eventsResult.rows.length === 0);
+  const overrideSession = (rebuild && checkInTime) ? [{ check_in: checkInTime, check_out: checkOutTime }] : null;
   const sessionsForCalc = overrideSession || sessionsResult.rows;
 
   const { daily_attendance } = calculateAttendance(shift, checkInTime, checkOutTime, eventsResult.rows, sessionsForCalc);
@@ -830,6 +836,8 @@ const updateAttendance = async (attendanceId, companyId, updates) => {
   // and check-in/out all derive from this one session.
   if (overrideSession) {
     const recId = result.rows[0].id;
+    // Replace any existing sessions for this record with the single override span.
+    await query('DELETE FROM attendance_sessions WHERE attendance_id = $1 AND company_id = $2', [recId, companyId]);
     const dur = checkOutTime ? Math.max(1, Math.ceil((checkOutTime - checkInTime) / 60000)) : null;
     await query(
       `INSERT INTO attendance_sessions (attendance_id, company_id, employee_id, check_in, check_out, duration_minutes)
