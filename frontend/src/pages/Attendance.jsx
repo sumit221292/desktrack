@@ -208,6 +208,11 @@ const Attendance = () => {
         return `${dt}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00+05:30`;
       };
 
+      // Times are 24-hour (e.g. 19:00 = 7 PM). Reject a check-out at/before check-in.
+      if (editForm.checkIn && editForm.checkOut && editForm.checkOut !== '-' && editForm.checkOut !== 'Active' && editForm.checkOut <= editForm.checkIn) {
+        alert('Check-out must be after check-in. Times are 24-hour — use 19:00 for 7 PM.');
+        return;
+      }
       const payload = {
         check_in: parseDisplayTime(selectedDate, editForm.checkIn),
         check_out: parseDisplayTime(selectedDate, editForm.checkOut),

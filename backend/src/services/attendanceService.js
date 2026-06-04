@@ -749,7 +749,13 @@ const updateAttendance = async (attendanceId, companyId, updates) => {
 
   const checkInTime = updates.check_in ? new Date(updates.check_in) : (record ? new Date(record.check_in) : new Date());
   const checkOutTime = updates.check_out ? new Date(updates.check_out) : (record?.check_out ? new Date(record.check_out) : null);
-  
+
+  // A manual override must not save a check-out at/before the check-in (e.g. entering
+  // 07:00 = 7 AM when 19:00 / 7 PM was meant) — that produced 0 work + a runaway break.
+  if (checkInTime && checkOutTime && checkOutTime.getTime() <= checkInTime.getTime()) {
+    throw new Error('Check-out must be after check-in.');
+  }
+
   // Fetch sessions and events for the record
   const sessionsResult = await query(
     'SELECT * FROM attendance_sessions WHERE attendance_id = $1 ORDER BY check_in ASC',
