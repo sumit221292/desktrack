@@ -236,8 +236,12 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
           }
         }
       }
+      // Excess over the allowance is computed ALWAYS — including while a break is still
+      // active (status INCOMPLETE). actualMins already counts the live active break, so the
+      // Expected Out reflects the over-break in real time instead of resetting to the base
+      // checkout whenever a break is open.
+      excessMins = Math.max(0, actualMins - allowedMins);
       if (status !== 'INCOMPLETE') {
-        excessMins = Math.max(0, actualMins - allowedMins);
         status = actualMins <= allowedMins ? 'ON_TIME' : 'EXTENDED';
       }
     }

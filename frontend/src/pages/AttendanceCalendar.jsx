@@ -97,8 +97,8 @@ const IndividualCalendar = ({ emp, records, specialEvents, weeks, month, year, t
     if (s === 'PRESENT' || s === 'ON TIME' || s === 'COMPLETE') c.present++;
     else if (s === 'LATE' || s === 'LATE_ARRIVAL' || s === 'OVER LATE' || s === 'OVERLATE') c.late++;
     else if (s === 'HALF DAY' || s === 'HALFDAY') c.halfday++;
-    else if (s === 'LEAVE') c.leave++;
-    else if (s === 'LOP') c.lop++;
+    else if (s === 'LEAVE') c.leave += recs[ds]?.half ? 0.5 : 1;   // half-day leave counts as 0.5
+    else if (s === 'LOP') c.lop += recs[ds]?.half ? 0.5 : 1;
     else if (s === 'ABSENT') c.absent++;
   }
   const attended = c.present + c.late + c.halfday;
