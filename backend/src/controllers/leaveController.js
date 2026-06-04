@@ -350,12 +350,16 @@ const adjustBalance = async (req, res) => {
       'SELECT used FROM leave_balances WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3 AND company_id = $4',
       [employee_id, leave_type_id, year, companyId]
     );
-    const used = existing.rows.length ? (parseInt(existing.rows[0].used) || 0) : 0;
+    // `used` is now editable too — use the provided value if sent, else keep the existing one.
+    const existingUsed = existing.rows.length ? (parseInt(existing.rows[0].used) || 0) : 0;
+    const used = (req.body.used !== undefined && req.body.used !== null && req.body.used !== '')
+      ? Math.max(0, Math.round(parseFloat(req.body.used) || 0))
+      : existingUsed;
     const remaining = Math.max(0, newTotal - used);
     await query(
       `INSERT INTO leave_balances (company_id, employee_id, leave_type_id, year, total, used, remaining)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (employee_id, leave_type_id, year) DO UPDATE SET total = $5, remaining = $7`,
+       ON CONFLICT (employee_id, leave_type_id, year) DO UPDATE SET total = $5, used = $6, remaining = $7`,
       [companyId, employee_id, leave_type_id, year, newTotal, used, remaining]
     );
     res.json({ message: 'Updated.', employee_id, leave_type_id, year, total: newTotal, used, remaining });

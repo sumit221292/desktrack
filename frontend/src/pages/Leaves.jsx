@@ -159,7 +159,7 @@ const Leaves = () => {
   const handleSaveBalance = async (e) => {
     e.preventDefault();
     try {
-      await api.put('/leaves/balances', { employee_id: editBal.employee_id, leave_type_id: editBal.leave_type_id, year: currentYear, total: editBal.total });
+      await api.put('/leaves/balances', { employee_id: editBal.employee_id, leave_type_id: editBal.leave_type_id, year: currentYear, total: editBal.total, used: editBal.used });
       setEditBal(null);
       await fetchData();
     } catch (err) { alert(err.response?.data?.error || 'Failed to update balance.'); }
@@ -429,8 +429,8 @@ const Leaves = () => {
                 <Input type="number" min="0" autoFocus value={editBal.total} onChange={e => setEditBal({ ...editBal, total: parseInt(e.target.value) || 0 })} />
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-700 mb-1 block">Used (auto)</label>
-                <Input type="number" value={editBal.used} disabled className="bg-slate-100 text-slate-500" />
+                <label className="text-xs font-bold text-slate-700 mb-1 block">Used</label>
+                <Input type="number" min="0" value={editBal.used} onChange={e => setEditBal({ ...editBal, used: parseInt(e.target.value) || 0 })} />
               </div>
             </div>
             <p className="text-[11px] text-slate-500 bg-slate-50 px-2.5 py-1.5 rounded-lg">
