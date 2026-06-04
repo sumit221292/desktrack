@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, X, Clock, FileText, Search, Cake, Award } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -174,35 +174,55 @@ const AttendanceCalendar = () => {
   const [selectedDate, setSelectedDate] = useState(null);
   const isEmployee = user?.role === 'EMPLOYEE';
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const res = await api.get(`/attendance/monthly?month=${month}&year=${year}`);
-        let resData = res.data;
-        // EMPLOYEE: filter to only their own data
-        if (isEmployee && user?.email) {
-          const myEmp = resData.employees.find(e => e.email === user.email);
-          if (myEmp) {
-            resData = { ...resData, employees: [myEmp] };
-          }
+  const isCurrentMonth = month === (now.getMonth() + 1) && year === now.getFullYear();
+
+  // `silent` refreshes data without touching the loading state or the user's
+  // employee selection — used by the realtime poll so today's cell stays live
+  // without flicker or losing the selected employee.
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const res = await api.get(`/attendance/monthly?month=${month}&year=${year}`);
+      let resData = res.data;
+      // EMPLOYEE: filter to only their own data
+      if (isEmployee && user?.email) {
+        const myEmp = resData.employees.find(e => e.email === user.email);
+        if (myEmp) {
+          resData = { ...resData, employees: [myEmp] };
         }
-        setData(resData);
-        // Default to a SINGLE employee so the calendar opens in the detailed
-        // individual view (own record for EMPLOYEE; first employee for admins).
+      }
+      setData(resData);
+      // Only on the initial (non-silent) load: default to a SINGLE employee so
+      // the calendar opens in the detailed individual view. A silent poll must
+      // never clobber whatever employee the user is currently viewing.
+      if (!silent) {
         const def = (isEmployee && user?.email)
           ? resData.employees.find(e => e.email === user.email)
           : resData.employees[0];
         const vis = {};
         resData.employees.forEach(e => { vis[e.id] = def ? e.id === def.id : true; });
         setVisibleEmps(vis);
-      } catch (err) {
-        console.error('Failed to fetch monthly attendance:', err);
       }
-      setLoading(false);
-    };
-    fetchData();
-  }, [month, year]);
+    } catch (err) {
+      console.error('Failed to fetch monthly attendance:', err);
+    }
+    if (!silent) setLoading(false);
+  }, [month, year, isEmployee, user?.email]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Realtime: silently re-fetch the current month every 10s so today's status
+  // (Checked In / On Time / Late), check-in time and work hours stay live —
+  // same idea as the dashboard's Recent Activity. Past months never change, so
+  // they aren't polled; polling pauses while the tab is hidden.
+  useEffect(() => {
+    if (!isCurrentMonth) return;
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      fetchData(true);
+    }, 10000);
+    return () => clearInterval(id);
+  }, [isCurrentMonth, fetchData]);
 
   const prevMonth = () => {
     if (month === 1) { setMonth(12); setYear(y => y - 1); }
