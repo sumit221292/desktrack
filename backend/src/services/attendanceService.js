@@ -1118,21 +1118,22 @@ const getMonthlyAttendance = async (companyId, month, year) => {
 
   // Approved leaves → per-employee, per-date map (paid = leave_type quota > 0, else LOP)
   const leaveRes = await query(
-    `SELECT lr.employee_id, lr.start_date, lr.end_date, lt.code, lt.annual_quota
+    `SELECT lr.employee_id, lr.start_date, lr.end_date, lr.leave_session, lt.code, lt.annual_quota
      FROM leave_requests lr JOIN leave_types lt ON lr.leave_type_id = lt.id
      WHERE lr.company_id = $1 AND lr.status = 'APPROVED'
        AND lr.start_date <= $3::date AND lr.end_date >= $2::date`,
     [companyId, startDate, endDate]
   ).catch(() => ({ rows: [] }));
-  const leaveMap = {}; // { empId: { 'YYYY-MM-DD': { paid, code } } }
+  const leaveMap = {}; // { empId: { 'YYYY-MM-DD': { paid, code, half, session } } }
   for (const lv of leaveRes.rows) {
     const s = new Date(Math.max(new Date(lv.start_date), new Date(startDate)));
     const e = new Date(Math.min(new Date(lv.end_date), new Date(endDate)));
     const paid = (parseInt(lv.annual_quota) || 0) > 0;
+    const half = ['FIRST_HALF', 'SECOND_HALF'].includes(lv.leave_session);
     for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
       const ds = d.toISOString().split('T')[0];
       if (!leaveMap[lv.employee_id]) leaveMap[lv.employee_id] = {};
-      leaveMap[lv.employee_id][ds] = { paid, code: lv.code };
+      leaveMap[lv.employee_id][ds] = { paid, code: lv.code, half, session: lv.leave_session };
     }
   }
 
@@ -1162,7 +1163,7 @@ const getMonthlyAttendance = async (companyId, month, year) => {
         } else if (holidayMap[dateStr] !== undefined) {
           records[emp.id][dateStr] = { status: 'OFFICE HOLIDAY' };   // company holiday
         } else if (lv) {
-          records[emp.id][dateStr] = { status: lv.paid ? 'LEAVE' : 'LOP', leaveCode: lv.code };
+          records[emp.id][dateStr] = { status: lv.paid ? 'LEAVE' : 'LOP', leaveCode: lv.code, half: lv.half, session: lv.session };
         } else if (dateStr >= today) {
           records[emp.id][dateStr] = { status: '-' };                 // today (in progress) or future — not absent yet
         } else {

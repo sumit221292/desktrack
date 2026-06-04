@@ -853,7 +853,7 @@ const db = {
         }
         // [LEAVE REQUESTS]
         else if (q.includes('insert into leave_requests')) {
-          const lr = { id: (memoryDB.leave_requests || []).length > 0 ? Math.max(...memoryDB.leave_requests.map(l=>l.id))+1 : 1, company_id: params[0], employee_id: params[1], leave_type_id: params[2], start_date: params[3], end_date: params[4], days: parseInt(params[5])||1, reason: params[6]||'', status: 'PENDING', created_at: new Date() };
+          const lr = { id: (memoryDB.leave_requests || []).length > 0 ? Math.max(...memoryDB.leave_requests.map(l=>l.id))+1 : 1, company_id: params[0], employee_id: params[1], leave_type_id: params[2], start_date: params[3], end_date: params[4], days: parseFloat(params[5])||1, leave_session: params[6]||'FULL', reason: params[7]||'', status: 'PENDING', created_at: new Date() };
           memoryDB.leave_requests.push(lr); saveToDisk(); resultRows = [lr]; rowCount = 1;
         }
         else if (q.includes('update leave_requests') && q.includes('status')) {
@@ -864,8 +864,8 @@ const db = {
         else if (q.includes('insert into leave_balances') || (q.includes('leave_balances') && q.includes('on conflict'))) {
           if (!memoryDB.leave_balances) memoryDB.leave_balances = [];
           const existing = memoryDB.leave_balances.findIndex(b => b.employee_id == params[1] && b.leave_type_id == params[2] && b.year == params[3]);
-          if (existing !== -1) { Object.assign(memoryDB.leave_balances[existing], { total: parseInt(params[4])||0, used: parseInt(params[5])||0, remaining: parseInt(params[6])||0 }); saveToDisk(); resultRows = [memoryDB.leave_balances[existing]]; }
-          else { const lb = { id: memoryDB.leave_balances.length+1, company_id: params[0], employee_id: params[1], leave_type_id: params[2], year: params[3], total: parseInt(params[4])||0, used: parseInt(params[5])||0, remaining: parseInt(params[6])||0 }; memoryDB.leave_balances.push(lb); saveToDisk(); resultRows = [lb]; }
+          if (existing !== -1) { Object.assign(memoryDB.leave_balances[existing], { total: parseFloat(params[4])||0, used: parseFloat(params[5])||0, remaining: parseFloat(params[6])||0 }); saveToDisk(); resultRows = [memoryDB.leave_balances[existing]]; }
+          else { const lb = { id: memoryDB.leave_balances.length+1, company_id: params[0], employee_id: params[1], leave_type_id: params[2], year: params[3], total: parseFloat(params[4])||0, used: parseFloat(params[5])||0, remaining: parseFloat(params[6])||0 }; memoryDB.leave_balances.push(lb); saveToDisk(); resultRows = [lb]; }
           rowCount = 1;
         }
 
@@ -1524,7 +1524,8 @@ async function runMigrations() {
           leave_type_id INTEGER REFERENCES leave_types(id),
           start_date DATE NOT NULL,
           end_date DATE NOT NULL,
-          days INTEGER NOT NULL DEFAULT 1,
+          days DECIMAL(4,1) NOT NULL DEFAULT 1,
+          leave_session VARCHAR(12) DEFAULT 'FULL',
           reason TEXT,
           status VARCHAR(20) DEFAULT 'PENDING',
           reviewed_by INTEGER REFERENCES employees(id),
@@ -1538,9 +1539,9 @@ async function runMigrations() {
           employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
           leave_type_id INTEGER REFERENCES leave_types(id),
           year INTEGER NOT NULL,
-          total INTEGER DEFAULT 0,
-          used INTEGER DEFAULT 0,
-          remaining INTEGER DEFAULT 0,
+          total DECIMAL(6,1) DEFAULT 0,
+          used DECIMAL(6,1) DEFAULT 0,
+          remaining DECIMAL(6,1) DEFAULT 0,
           UNIQUE(employee_id, leave_type_id, year)
         );
 
@@ -1638,6 +1639,12 @@ async function runMigrations() {
         await pool.query('ALTER TABLE payroll_records ADD COLUMN IF NOT EXISTS lop_amount DECIMAL(12,2) DEFAULT 0');
         // leave_types — accrual mode ('annual' upfront | 'monthly' = annual_quota/12 per month)
         await pool.query("ALTER TABLE leave_types ADD COLUMN IF NOT EXISTS accrual_frequency VARCHAR(10) DEFAULT 'annual'");
+        // half-day leave — fractional days + a session label ('FULL' | 'FIRST_HALF' | 'SECOND_HALF')
+        await pool.query("ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS leave_session VARCHAR(12) DEFAULT 'FULL'");
+        await pool.query('ALTER TABLE leave_requests ALTER COLUMN days TYPE DECIMAL(4,1)');
+        await pool.query('ALTER TABLE leave_balances ALTER COLUMN total TYPE DECIMAL(6,1)');
+        await pool.query('ALTER TABLE leave_balances ALTER COLUMN used TYPE DECIMAL(6,1)');
+        await pool.query('ALTER TABLE leave_balances ALTER COLUMN remaining TYPE DECIMAL(6,1)');
       } catch (e) { /* already exists */ }
 
       // shifts — add lunch/tea allowed minutes and max break

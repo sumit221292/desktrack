@@ -34,7 +34,7 @@ const Leaves = () => {
   const [showApply, setShowApply] = useState(false);
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [editBal, setEditBal] = useState(null); // HR: per-employee leave-balance allocation editor
-  const [applyForm, setApplyForm] = useState({ leave_type_id: '', start_date: '', end_date: '', reason: '' });
+  const [applyForm, setApplyForm] = useState({ leave_type_id: '', start_date: '', end_date: '', reason: '', leave_session: 'FULL' });
   const [typeForm, setTypeForm] = useState({ name: '', code: '', annual_quota: 12, carry_forward: false, accrual_frequency: 'annual' });
   const [editingType, setEditingType] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -97,13 +97,17 @@ const Leaves = () => {
   const handleApply = async (e) => {
     e.preventDefault();
     const today = new Date().toLocaleDateString('en-CA');
-    if (applyForm.end_date < applyForm.start_date) { alert('End date cannot be before the start date.'); return; }
+    const isHalf = ['FIRST_HALF', 'SECOND_HALF'].includes(applyForm.leave_session);
+    if (!applyForm.start_date) { alert('Please pick a date.'); return; }
     if (applyForm.start_date < today) { alert('Cannot apply for a past date.'); return; }
+    if (!isHalf && applyForm.end_date < applyForm.start_date) { alert('End date cannot be before the start date.'); return; }
+    // Half-day is a single day → end = start.
+    const payload = isHalf ? { ...applyForm, end_date: applyForm.start_date } : applyForm;
     setSubmitting(true);
     try {
-      await api.post('/leaves/apply', applyForm);
+      await api.post('/leaves/apply', payload);
       setShowApply(false);
-      setApplyForm({ leave_type_id: '', start_date: '', end_date: '', reason: '' });
+      setApplyForm({ leave_type_id: '', start_date: '', end_date: '', reason: '', leave_session: 'FULL' });
       await fetchData();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to apply leave');
@@ -280,7 +284,10 @@ const Leaves = () => {
                       {leaveTypes.map(lt => {
                         const bal = empBals.find(b => b.leave_type_id === lt.id);
                         const cellInner = bal
-                          ? <span title={`Available ${bal.available ?? bal.remaining} · Accrued ${bal.accrued ?? bal.total} · Annual ${bal.total} · Used ${bal.used}`}><span className="font-bold text-emerald-700">{bal.available ?? bal.remaining}</span><span className="text-slate-400">/{bal.total}</span></span>
+                          ? <span title={`Available ${bal.available ?? bal.remaining} · Accrued ${bal.accrued ?? bal.total} · Annual ${bal.total} · Used ${bal.used}`}>
+                              <span className="font-bold text-emerald-700">{bal.available ?? bal.remaining}</span><span className="text-slate-400">/{bal.total}</span>
+                              <span className="block text-[10px] font-normal text-amber-600">used {bal.used}</span>
+                            </span>
                           : <span className="text-slate-300">{isHR ? '+ set' : '-'}</span>;
                         return (
                           <td key={lt.id} className="px-4 py-3 text-center">
@@ -347,7 +354,10 @@ const Leaves = () => {
                       {r.start_date ? new Date(r.start_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '-'}
                       {r.start_date !== r.end_date && <> → {r.end_date ? new Date(r.end_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '-'}</>}
                     </td>
-                    <td className="px-5 py-3 text-center font-bold">{r.days}</td>
+                    <td className="px-5 py-3 text-center font-bold">
+                      {r.days}
+                      {r.leave_session && r.leave_session !== 'FULL' && <span className="ml-1 text-[9px] bg-purple-50 text-purple-600 px-1 py-0.5 rounded font-bold align-middle">½ {r.leave_session === 'FIRST_HALF' ? 'AM' : 'PM'}</span>}
+                    </td>
                     <td className="px-5 py-3 text-slate-600 max-w-[200px] truncate" title={r.reason}>{r.reason || '-'}</td>
                     <td className="px-5 py-3 text-center">{statusBadge(r.status)}</td>
                     <td className="px-5 py-3 text-center">
@@ -389,23 +399,59 @@ const Leaves = () => {
               {leaveTypes.map(lt => <option key={lt.id} value={lt.id}>{lt.name} ({lt.code})</option>)}
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5 block">Start Date *</label>
-              <Input type="date" required min={new Date().toLocaleDateString('en-CA')} value={applyForm.start_date} onChange={e => setApplyForm({ ...applyForm, start_date: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5 block">End Date *</label>
-              <Input type="date" required min={applyForm.start_date || new Date().toLocaleDateString('en-CA')} value={applyForm.end_date} onChange={e => setApplyForm({ ...applyForm, end_date: e.target.value })} />
-            </div>
-          </div>
-          {applyForm.start_date && applyForm.end_date && (
-            applyForm.end_date < applyForm.start_date
-              ? <div className="bg-red-50 px-4 py-2 rounded-lg text-sm font-bold text-red-600">End date cannot be before the start date.</div>
-              : applyForm.start_date < new Date().toLocaleDateString('en-CA')
-                ? <div className="bg-red-50 px-4 py-2 rounded-lg text-sm font-bold text-red-600">Cannot apply for a past date.</div>
-                : <div className="bg-blue-50 px-4 py-2 rounded-lg text-sm font-bold text-blue-700">{calcDays(applyForm.start_date, applyForm.end_date)} working day(s)</div>
-          )}
+          {(() => {
+            const isHalf = ['FIRST_HALF', 'SECOND_HALF'].includes(applyForm.leave_session);
+            const today = new Date().toLocaleDateString('en-CA');
+            const selCls = "w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm font-medium focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500";
+            return (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5 block">Duration *</label>
+                    <select value={isHalf ? 'HALF' : 'FULL'} className={selCls}
+                      onChange={e => setApplyForm({ ...applyForm, leave_session: e.target.value === 'HALF' ? 'FIRST_HALF' : 'FULL', end_date: e.target.value === 'HALF' ? applyForm.start_date : applyForm.end_date })}>
+                      <option value="FULL">Full Day</option>
+                      <option value="HALF">Half Day</option>
+                    </select>
+                  </div>
+                  {isHalf && (
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5 block">Session *</label>
+                      <select value={applyForm.leave_session} className={selCls}
+                        onChange={e => setApplyForm({ ...applyForm, leave_session: e.target.value })}>
+                        <option value="FIRST_HALF">First half (morning)</option>
+                        <option value="SECOND_HALF">Second half (afternoon)</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5 block">{isHalf ? 'Date *' : 'Start Date *'}</label>
+                    <Input type="date" required min={today} value={applyForm.start_date}
+                      onChange={e => setApplyForm({ ...applyForm, start_date: e.target.value, end_date: isHalf ? e.target.value : applyForm.end_date })} />
+                  </div>
+                  {!isHalf && (
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5 block">End Date *</label>
+                      <Input type="date" required min={applyForm.start_date || today} value={applyForm.end_date} onChange={e => setApplyForm({ ...applyForm, end_date: e.target.value })} />
+                    </div>
+                  )}
+                </div>
+                {applyForm.start_date && (
+                  applyForm.start_date < today
+                    ? <div className="bg-red-50 px-4 py-2 rounded-lg text-sm font-bold text-red-600">Cannot apply for a past date.</div>
+                    : isHalf
+                      ? <div className="bg-blue-50 px-4 py-2 rounded-lg text-sm font-bold text-blue-700">0.5 day ({applyForm.leave_session === 'FIRST_HALF' ? 'First half' : 'Second half'})</div>
+                      : (applyForm.end_date && (
+                          applyForm.end_date < applyForm.start_date
+                            ? <div className="bg-red-50 px-4 py-2 rounded-lg text-sm font-bold text-red-600">End date cannot be before the start date.</div>
+                            : <div className="bg-blue-50 px-4 py-2 rounded-lg text-sm font-bold text-blue-700">{calcDays(applyForm.start_date, applyForm.end_date)} working day(s)</div>
+                        ))
+                )}
+              </>
+            );
+          })()}
           <div>
             <label className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5 block">Reason</label>
             <textarea value={applyForm.reason} onChange={e => setApplyForm({ ...applyForm, reason: e.target.value })} rows={3}

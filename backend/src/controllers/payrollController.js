@@ -320,21 +320,24 @@ const calculateAttendanceDays = async (companyId, employeeId, month, year) => {
 
   let paidLeaveDays = 0, unpaidLeaveDays = 0;
   for (const leave of leaveResult.rows) {
+    // Half-day leave (FIRST_HALF / SECOND_HALF) counts as 0.5 of one day, not the weekday span.
+    const half = ['FIRST_HALF', 'SECOND_HALF'].includes(leave.leave_session);
     const ls = new Date(Math.max(new Date(leave.start_date), new Date(startDate)));
     const le = new Date(Math.min(new Date(leave.end_date), new Date(endDate)));
     let daysInRange = 0;
     for (let d = new Date(ls); d <= le; d.setDate(d.getDate() + 1)) {
       if (d.getDay() !== 0 && d.getDay() !== 6) daysInRange++;
     }
+    const cnt = half ? 0.5 : daysInRange;
     // If leave type has annual_quota > 0 = paid leave, else unpaid (LOP)
-    if ((parseInt(leave.annual_quota) || 0) > 0) paidLeaveDays += daysInRange;
-    else unpaidLeaveDays += daysInRange;
+    if ((parseInt(leave.annual_quota) || 0) > 0) paidLeaveDays += cnt;
+    else unpaidLeaveDays += cnt;
 
-    // If marked absent on leave day, reverse that absent count (leave takes precedence)
+    // If marked absent on a leave day, reverse the covered portion (a half-day releases 0.5).
     for (let d = new Date(ls); d <= le; d.setDate(d.getDate() + 1)) {
       if (d.getDay() === 0 || d.getDay() === 6) continue;
       const dateStr = d.toISOString().split('T')[0];
-      if (!attendedDateSet.has(dateStr) && absentDays > 0) absentDays -= 1;
+      if (!attendedDateSet.has(dateStr) && absentDays > 0) absentDays = Math.max(0, absentDays - (half ? 0.5 : 1));
     }
   }
 

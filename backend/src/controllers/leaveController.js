@@ -14,7 +14,7 @@ const istToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkat
 //  - 'monthly' → quota/12 per month, available at the START of each month
 //    (Jan→1 … Jun→6 … Dec→12). Past years fully accrued; future years none.
 const accruedToDate = (type, balanceYear) => {
-  const quota = parseInt(type.annual_quota) || 0;
+  const quota = parseFloat(type.annual_quota) || 0;
   if ((type.accrual_frequency || 'annual') !== 'monthly') return quota;
   const { year, month } = istParts();
   if (balanceYear < year) return quota;
@@ -115,33 +115,41 @@ const getLeaveRequests = async (req, res) => {
 };
 
 const applyLeave = async (req, res) => {
-  const { leave_type_id, start_date, end_date, reason } = req.body;
+  const { leave_type_id, start_date, end_date, reason, leave_session } = req.body;
   try {
     // Resolve employee ID from user
     const empResult = await query('SELECT id FROM employees WHERE email = (SELECT email FROM users WHERE id = $1) AND company_id = $2', [req.user.id, req.tenantId]);
     if (empResult.rows.length === 0) return res.status(400).json({ error: 'Employee not found.' });
     const employeeId = empResult.rows[0].id;
 
-    // Validate the date range (date-only YYYY-MM-DD string compare; inputs are dates).
-    const sStr = String(start_date || '').slice(0, 10), eStr = String(end_date || '').slice(0, 10);
-    if (!sStr || !eStr) return res.status(400).json({ error: 'Start and end dates are required.' });
-    if (eStr < sStr) return res.status(400).json({ error: 'End date cannot be before the start date.' });
+    // Half-day leave is a SINGLE day worth 0.5 (FIRST_HALF / SECOND_HALF is just a label);
+    // a full leave counts the weekdays in the range. Date-only YYYY-MM-DD string compares.
+    const half = ['FIRST_HALF', 'SECOND_HALF'].includes(leave_session);
+    const session = half ? leave_session : 'FULL';
+    const sStr = String(start_date || '').slice(0, 10);
+    let eStr = String(end_date || '').slice(0, 10);
+    if (!sStr) return res.status(400).json({ error: 'Start date is required.' });
     if (sStr < istToday()) return res.status(400).json({ error: 'Cannot apply for a past date.' });
 
-    // Calculate days
-    const start = new Date(start_date);
-    const end = new Date(end_date);
-    let days = 0;
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const dow = d.getDay();
-      if (dow !== 0 && dow !== 6) days++;
+    let days;
+    if (half) {
+      eStr = sStr; // half-day spans a single day
+      days = 0.5;
+    } else {
+      if (!eStr) return res.status(400).json({ error: 'End date is required.' });
+      if (eStr < sStr) return res.status(400).json({ error: 'End date cannot be before the start date.' });
+      days = 0;
+      for (let d = new Date(sStr); d <= new Date(eStr); d.setDate(d.getDate() + 1)) {
+        const dow = d.getDay();
+        if (dow !== 0 && dow !== 6) days++;
+      }
+      if (days < 1) days = 1;
     }
-    if (days < 1) days = 1;
 
     // Check balance against what's ACCRUED so far (monthly types earn quota/12 per month;
     // annual types are fully accrued, so available === remaining for them). Unpaid leave
     // (quota 0) is never balance-checked.
-    const year = start.getFullYear();
+    const year = new Date(sStr).getFullYear();
     const balResult = await query(
       'SELECT * FROM leave_balances WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3 AND company_id = $4',
       [employeeId, leave_type_id, year, req.tenantId]
@@ -149,7 +157,7 @@ const applyLeave = async (req, res) => {
     const ltResult = await query('SELECT * FROM leave_types WHERE id = $1 AND company_id = $2', [leave_type_id, req.tenantId]);
     const lt = ltResult.rows[0];
     if (lt && (parseInt(lt.annual_quota) || 0) > 0 && balResult.rows.length > 0) {
-      const used = parseInt(balResult.rows[0].used) || 0;
+      const used = parseFloat(balResult.rows[0].used) || 0;
       // Cap = this employee's allocated `total` (HR-overridable), ramped by the type's accrual mode.
       const available = Math.max(0, accruedToDate({ annual_quota: balResult.rows[0].total, accrual_frequency: lt.accrual_frequency }, year) - used);
       if (days > available) {
@@ -160,8 +168,8 @@ const applyLeave = async (req, res) => {
     }
 
     const result = await query(
-      'INSERT INTO leave_requests (company_id, employee_id, leave_type_id, start_date, end_date, days, reason) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-      [req.tenantId, employeeId, leave_type_id, start_date, end_date, days, reason || '']
+      'INSERT INTO leave_requests (company_id, employee_id, leave_type_id, start_date, end_date, days, leave_session, reason) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+      [req.tenantId, employeeId, leave_type_id, sStr, eStr, days, session, reason || '']
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -205,8 +213,8 @@ const reviewLeave = async (req, res) => {
         [lr.employee_id, lr.leave_type_id, year, req.tenantId]
       );
       if (bal.rows.length > 0) {
-        const newUsed = Math.max(0, (parseInt(bal.rows[0].used) || 0) + delta);
-        const newRemaining = Math.max(0, (parseInt(bal.rows[0].total) || 0) - newUsed);
+        const newUsed = Math.max(0, (parseFloat(bal.rows[0].used) || 0) + delta);
+        const newRemaining = Math.max(0, (parseFloat(bal.rows[0].total) || 0) - newUsed);
         await query(
           'INSERT INTO leave_balances (company_id, employee_id, leave_type_id, year, total, used, remaining) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (employee_id, leave_type_id, year) DO UPDATE SET used = $6, remaining = $7',
           [req.tenantId, lr.employee_id, lr.leave_type_id, year, bal.rows[0].total, newUsed, newRemaining]
@@ -253,8 +261,8 @@ const cancelLeave = async (req, res) => {
         [lr.employee_id, lr.leave_type_id, year, companyId]
       );
       if (bal.rows.length > 0) {
-        const newUsed = Math.max(0, (parseInt(bal.rows[0].used) || 0) - lr.days);
-        const newRemaining = Math.max(0, (parseInt(bal.rows[0].total) || 0) - newUsed);
+        const newUsed = Math.max(0, (parseFloat(bal.rows[0].used) || 0) - lr.days);
+        const newRemaining = Math.max(0, (parseFloat(bal.rows[0].total) || 0) - newUsed);
         await query(
           'INSERT INTO leave_balances (company_id, employee_id, leave_type_id, year, total, used, remaining) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (employee_id, leave_type_id, year) DO UPDATE SET used = $6, remaining = $7',
           [companyId, lr.employee_id, lr.leave_type_id, year, bal.rows[0].total, newUsed, newRemaining]
@@ -294,7 +302,7 @@ const getLeaveBalances = async (req, res) => {
       // allocation HR can override), not the type's annual_quota — so a custom allocation
       // (e.g. CL 6 for one employee) is respected. Monthly types ramp `total` over the year.
       const accrued = accruedToDate({ annual_quota: r.total, accrual_frequency: r.accrual_frequency }, parseInt(r.year));
-      const available = Math.max(0, accrued - (parseInt(r.used) || 0));
+      const available = Math.max(0, accrued - (parseFloat(r.used) || 0));
       return {
         ...r,
         accrued,
@@ -344,16 +352,17 @@ const adjustBalance = async (req, res) => {
     const leave_type_id = parseInt(req.body.leave_type_id);
     const year = parseInt(req.body.year) || new Date().getFullYear();
     if (!employee_id || !leave_type_id) return res.status(400).json({ error: 'employee_id and leave_type_id are required.' });
-    const newTotal = Math.max(0, Math.round(parseFloat(req.body.total) || 0));
+    const r1 = (v) => Math.max(0, Math.round((parseFloat(v) || 0) * 10) / 10); // ≥0, 1-decimal
+    const newTotal = r1(req.body.total);
 
     const existing = await query(
       'SELECT used FROM leave_balances WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3 AND company_id = $4',
       [employee_id, leave_type_id, year, companyId]
     );
     // `used` is now editable too — use the provided value if sent, else keep the existing one.
-    const existingUsed = existing.rows.length ? (parseInt(existing.rows[0].used) || 0) : 0;
+    const existingUsed = existing.rows.length ? (parseFloat(existing.rows[0].used) || 0) : 0;
     const used = (req.body.used !== undefined && req.body.used !== null && req.body.used !== '')
-      ? Math.max(0, Math.round(parseFloat(req.body.used) || 0))
+      ? r1(req.body.used)
       : existingUsed;
     const remaining = Math.max(0, newTotal - used);
     await query(

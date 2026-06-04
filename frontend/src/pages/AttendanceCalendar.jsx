@@ -167,8 +167,9 @@ const IndividualCalendar = ({ emp, records, specialEvents, weeks, month, year, t
                 // check-in — even on an ABSENT day (came in but left before the half-shift
                 // mark) — so the person's activity is visible, not just a bare "Absent".
                 const hasActivity = isAttend || !!r.check_in;
-                // Non-attend sub-line (leave code / holiday name)
-                const sub = s === 'LEAVE' ? (r.leaveCode || 'Leave')
+                // Non-attend sub-line (leave code / holiday name). Half-day leave → "½ CODE (AM/PM)".
+                const halfTag = r.half ? `½${r.session === 'FIRST_HALF' ? ' AM' : r.session === 'SECOND_HALF' ? ' PM' : ''} ` : '';
+                const sub = (s === 'LEAVE' || s === 'LOP') ? `${halfTag}${r.leaveCode || (s === 'LOP' ? 'LOP' : 'Leave')}`
                   : s === 'OFFICE HOLIDAY' ? ((specialEvents[ds] || []).find(e => e.type === 'holiday')?.name || '') : null;
                 return (
                   <td key={day} className={`border border-slate-100 align-top p-1.5 h-28 ${isWeekend ? 'bg-slate-50/60' : 'bg-white'}`}>
