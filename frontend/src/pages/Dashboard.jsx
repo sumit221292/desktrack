@@ -68,18 +68,23 @@ const fmtHMS = (totalSecs) => {
 const DashboardLiveTimer = ({ sessions = [], breaks = { LUNCH: [], TEA: [] }, isLive, fallbackSecs = 0 }) => {
   const [display, setDisplay] = useState('00:00:00');
   useEffect(() => {
-    const sb = (a, b) => a ? Math.max(0, Math.floor((new Date(b || Date.now()).getTime() - new Date(a).getTime()) / 1000)) : 0;
     const compute = () => {
       if (!sessions.length) return fallbackSecs || 0;
-      const work = sessions.reduce((s, x) => s + sb(x.check_in, x.check_out), 0);
+      // Use ONE `now` and accumulate in milliseconds, flooring ONLY at the end. Flooring
+      // each piece separately made the open session and the active break (both measured to
+      // `now`) round at different sub-second moments, so their cancellation jiggled ±1-2s
+      // during a break. One `now` + ms math makes them cancel exactly → frozen, no flicker.
+      const now = Date.now();
+      const ms = (a, b) => a ? Math.max(0, (b ? new Date(b).getTime() : now) - new Date(a).getTime()) : 0;
+      const workMs = sessions.reduce((s, x) => s + ms(x.check_in, x.check_out), 0);
       const all = [...(breaks.LUNCH || []), ...(breaks.TEA || [])];
       // Completed breaks + AT MOST ONE active break (you can only be on one break at a
       // time). Counting the single earliest open break keeps work frozen during a break
       // even if bad data has more than one break open at once.
-      const completed = all.filter(b => b.end).reduce((s, b) => s + sb(b.start, b.end), 0);
+      const completedMs = all.filter(b => b.end).reduce((s, b) => s + ms(b.start, b.end), 0);
       const activeStarts = all.filter(b => !b.end).map(b => new Date(b.start).getTime());
-      const active = activeStarts.length ? Math.max(0, Math.floor((Date.now() - Math.min(...activeStarts)) / 1000)) : 0;
-      return Math.max(0, work - completed - active);
+      const activeMs = activeStarts.length ? Math.max(0, now - Math.min(...activeStarts)) : 0;
+      return Math.max(0, Math.floor((workMs - completedMs - activeMs) / 1000));
     };
     const tick = () => setDisplay(fmtHMS(compute()));
     tick();

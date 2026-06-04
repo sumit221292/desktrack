@@ -55,7 +55,7 @@ const fmtHM = (totalSecs) => {
   const s = Math.max(0, Math.floor(totalSecs));
   return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`;
 };
-const LiveWork = ({ baseSeconds, isLive, fetchedAt, fallback }) => {
+const LiveWork = ({ baseSeconds, isLive, sessions, breaks }) => {
   const [, setTick] = useState(0);
   useEffect(() => {
     if (!isLive) return;
@@ -63,9 +63,19 @@ const LiveWork = ({ baseSeconds, isLive, fetchedAt, fallback }) => {
     return () => clearInterval(id);
   }, [isLive]);
   const base = Number(baseSeconds) || 0;
-  if (!isLive) return <>{base > 0 ? fmtHM(base) : (fallback || '0h 00m')}</>;
-  const live = base + Math.max(0, (Date.now() - (fetchedAt || Date.now())) / 1000);
-  return <>{fmtHMS(live)}</>;
+  // Completed day (or no live session data): static, from the accurate server seconds.
+  if (!isLive || !sessions || !sessions.length) return <>{base > 0 ? fmtHM(base) : '0h 00m'}</>;
+  // In progress: compute EXACTLY like the Dashboard — sessions − completed breaks − one
+  // active break, one `now` + ms math, floor once. So it ticks live AND freezes during a
+  // break (open session and active break cancel), staying in lock-step with the Dashboard.
+  const now = Date.now();
+  const ms = (a, b) => a ? Math.max(0, (b ? new Date(b).getTime() : now) - new Date(a).getTime()) : 0;
+  const workMs = sessions.reduce((s, x) => s + ms(x.check_in, x.check_out), 0);
+  const all = [...((breaks && breaks.LUNCH) || []), ...((breaks && breaks.TEA) || [])];
+  const completedMs = all.filter(b => b.end).reduce((s, b) => s + ms(b.start, b.end), 0);
+  const activeStarts = all.filter(b => !b.end).map(b => new Date(b.start).getTime());
+  const activeMs = activeStarts.length ? Math.max(0, now - Math.min(...activeStarts)) : 0;
+  return <>{fmtHMS(Math.max(0, Math.floor((workMs - completedMs - activeMs) / 1000)))}</>;
 };
 
 // Detailed single-employee view: summary panel + per-day status grid with times.
@@ -175,7 +185,7 @@ const IndividualCalendar = ({ emp, records, specialEvents, weeks, month, year, t
                             </p>
                             {(r.is_checked_in || r.net_work_seconds > 0 || r.workHours) && (
                               <p className="text-[10px] font-bold leading-tight font-mono" style={{ color: cfg.color }}>
-                                <LiveWork baseSeconds={r.net_work_seconds} isLive={r.is_checked_in} fetchedAt={fetchedAt} fallback={r.workHours} />
+                                <LiveWork baseSeconds={r.net_work_seconds} isLive={r.is_checked_in} sessions={r.sessions} breaks={r.breaks} />
                               </p>
                             )}
                           </>

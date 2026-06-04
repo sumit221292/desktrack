@@ -41,6 +41,22 @@ const getCompanyTimezone = async (companyId) => {
 const dateInTz = (instant = new Date(), tz = 'Asia/Kolkata') =>
   new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(instant));
 
+// Pair break START/END events into { LUNCH:[{start,end}], TEA:[{start,end}] } with AT
+// MOST one open break per type — the same shape the /activity route returns. Lets the
+// calendar's live timer compute work exactly like the Dashboard (pausing during a break).
+const pairBreakEvents = (events = []) => {
+  const sorted = events.slice().sort((a, b) => new Date(a.event_time) - new Date(b.event_time));
+  const pairs = { LUNCH: [], TEA: [] };
+  for (const type of ['LUNCH', 'TEA']) {
+    const starts = sorted.filter(e => e.event_type === `${type}_START`);
+    const ends = sorted.filter(e => e.event_type === `${type}_END`);
+    const n = Math.min(starts.length, ends.length);
+    for (let i = 0; i < n; i++) pairs[type].push({ start: starts[i].event_time, end: ends[i].event_time });
+    if (starts.length > ends.length) pairs[type].push({ start: starts[n].event_time, end: null });
+  }
+  return pairs;
+};
+
 // Last instant we have PROOF the employee was present, used when checkout is missing.
 // = the latest of: check-in, any real (closed) session checkout, any break event.
 // An open session contributes nothing (we don't know when they actually left).
@@ -1177,6 +1193,12 @@ const getMonthlyAttendance = async (companyId, month, year) => {
         is_checked_in: isCheckedIn,
         net_work_minutes: netMins,
         net_work_seconds: daily_attendance.net_work_seconds || 0,  // accurate session-based seconds (same source the Dashboard ticks from)
+        // For an in-progress day, ship the raw sessions + paired breaks so the calendar's
+        // live timer computes work EXACTLY like the Dashboard (and freezes during a break).
+        ...(isCheckedIn ? {
+          sessions: empDaySessions.map(s => ({ check_in: s.check_in, check_out: s.check_out })),
+          breaks: pairBreakEvents(empDayEvents),
+        } : {}),
         total_break_minutes: breakMins,
         workHours: netMins > 0 ? fmtTime(netMins) : (isCheckedIn ? 'In Progress' : '0h 00m'),
         breakTime: fmtTime(breakMins),
