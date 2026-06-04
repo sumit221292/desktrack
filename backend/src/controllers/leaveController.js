@@ -170,24 +170,33 @@ const reviewLeave = async (req, res) => {
     const revEmp = await query('SELECT id FROM employees WHERE email = (SELECT email FROM users WHERE id = $1) AND company_id = $2', [req.user.id, req.tenantId]);
     const reviewerId = revEmp.rows.length > 0 ? revEmp.rows[0].id : null;
 
+    // Read the CURRENT state first so we can apply the right balance delta and stay
+    // idempotent — re-approving doesn't double-count, and changing an APPROVED request to
+    // REJECTED (e.g. an accidental approval) ADDS the days back to the balance.
+    const before = await query('SELECT * FROM leave_requests WHERE id = $1 AND company_id = $2', [req.params.id, req.tenantId]);
+    if (before.rows.length === 0) return res.status(404).json({ error: 'Not found.' });
+    const prev = before.rows[0];
+    const wasApproved = prev.status === 'APPROVED';
+    const willApprove = status === 'APPROVED';
+
     const result = await query(
       'UPDATE leave_requests SET status = $1, reviewed_by = $2, reviewed_at = NOW() WHERE id = $3 AND company_id = $4 RETURNING *',
       [status, reviewerId, req.params.id, req.tenantId]
     );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Not found.' });
-
     const lr = result.rows[0];
 
-    // If approved, update balance
-    if (status === 'APPROVED') {
+    // Balance delta: consume days when entering APPROVED, release them when leaving APPROVED.
+    let delta = 0;
+    if (!wasApproved && willApprove) delta = lr.days;
+    else if (wasApproved && !willApprove) delta = -lr.days;
+    if (delta !== 0) {
       const year = new Date(lr.start_date).getFullYear();
-      // Check if balance exists
       const bal = await query(
         'SELECT * FROM leave_balances WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3 AND company_id = $4',
         [lr.employee_id, lr.leave_type_id, year, req.tenantId]
       );
       if (bal.rows.length > 0) {
-        const newUsed = (parseInt(bal.rows[0].used) || 0) + lr.days;
+        const newUsed = Math.max(0, (parseInt(bal.rows[0].used) || 0) + delta);
         const newRemaining = Math.max(0, (parseInt(bal.rows[0].total) || 0) - newUsed);
         await query(
           'INSERT INTO leave_balances (company_id, employee_id, leave_type_id, year, total, used, remaining) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (employee_id, leave_type_id, year) DO UPDATE SET used = $6, remaining = $7',

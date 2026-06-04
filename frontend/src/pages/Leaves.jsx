@@ -323,7 +323,11 @@ const Leaves = () => {
                             <button onClick={() => handleReview(r.id, 'APPROVED')} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Approve"><CheckCircle size={18} /></button>
                             <button onClick={() => handleReview(r.id, 'REJECTED')} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg" title="Reject"><XCircle size={18} /></button>
                           </div>
-                        ) : <span className="text-xs text-slate-400">Reviewed</span>}
+                        ) : r.status === 'APPROVED' ? (
+                          <button onClick={() => { if (window.confirm('Reject this approved leave? The days will be added back to the balance.')) handleReview(r.id, 'REJECTED'); }} className="text-xs text-red-500 hover:underline font-bold px-2 py-1" title="Reject (undo approval — restores balance)">Reject</button>
+                        ) : (
+                          <button onClick={() => handleReview(r.id, 'APPROVED')} className="text-xs text-emerald-600 hover:underline font-bold px-2 py-1" title="Approve">Approve</button>
+                        )}
                       </td>
                     )}
                   </tr>
