@@ -966,6 +966,12 @@ const getDailyAttendance = async (companyId, dateStr) => {
         employee_id: emp.id,
         email: emp.email,
         is_checked_in: isCheckedIn,
+        // For an in-progress row, ship raw sessions + paired breaks so the list's live
+        // work timer computes EXACTLY like the Dashboard/Calendar (and freezes on a break).
+        ...(isCheckedIn ? {
+          sessions: empSessions.map(s => ({ check_in: s.check_in, check_out: s.check_out })),
+          breaks: pairBreakEvents(empEvents),
+        } : {}),
         name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown',
         role: emp.role,
         workHours: netMins > 0 ? fmtTime(netMins) : (isCheckedIn ? 'In Progress' : '0h 00m'),

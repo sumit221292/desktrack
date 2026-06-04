@@ -62,6 +62,38 @@ const LiveBreakTimer = ({ checkOutTime, baseMins = 0, expectedOut }) => {
   return <span className="text-orange-600 font-mono tabular-nums">{elapsed}</span>;
 };
 
+// Canonical live WORK time — identical to the Dashboard & Calendar: sum of sessions
+// minus completed breaks minus the single active break, with one `now` + ms math and a
+// single floor (so the open session and active break cancel exactly → freezes on break,
+// no ±1s jiggle, and re-check-in gaps are excluded). Completed rows show net_work_seconds.
+const fmtHMS = (secs) => {
+  const s = Math.max(0, Math.floor(secs || 0));
+  return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+};
+const computeWorkSecs = (sessions, breaks) => {
+  const now = Date.now();
+  const ms = (a, b) => a ? Math.max(0, (b ? new Date(b).getTime() : now) - new Date(a).getTime()) : 0;
+  const workMs = sessions.reduce((s, x) => s + ms(x.check_in, x.check_out), 0);
+  const all = [...((breaks && breaks.LUNCH) || []), ...((breaks && breaks.TEA) || [])];
+  const completedMs = all.filter(b => b.end).reduce((s, b) => s + ms(b.start, b.end), 0);
+  const starts = all.filter(b => !b.end).map(b => new Date(b.start).getTime());
+  const activeMs = starts.length ? Math.max(0, now - Math.min(...starts)) : 0;
+  return Math.max(0, Math.floor((workMs - completedMs - activeMs) / 1000));
+};
+const LiveWorkTimer = ({ record }) => {
+  const [, setT] = useState(0);
+  const live = !!(record.is_checked_in && Array.isArray(record.sessions) && record.sessions.length);
+  useEffect(() => {
+    if (!live) return;
+    const id = setInterval(() => setT(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [live]);
+  const secs = live
+    ? computeWorkSecs(record.sessions, record.breaks)
+    : (Number(record.net_work_seconds) || (Number(record.net_work_minutes) || 0) * 60);
+  return <span className={`font-mono tabular-nums ${live ? 'text-emerald-600' : ''}`}>{fmtHMS(secs)}</span>;
+};
+
 const getStatusBadge = (status, reason = '') => {
   const cfg = getStatusConfig(status);
   return (
@@ -123,8 +155,8 @@ const Attendance = () => {
     } catch (err) { return '0h 00m'; }
   };
 
-  const fetchAttendance = async () => {
-    setIsLoading(true);
+  const fetchAttendance = async (silent = false) => {
+    if (!silent) setIsLoading(true);
     try {
       const response = await api.get(`/attendance?date=${selectedDate}`);
       const data = response.data;
@@ -148,13 +180,23 @@ const Attendance = () => {
     } catch (err) {
       console.error('Failed to fetch attendance:', err);
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
   React.useEffect(() => {
     fetchAttendance();
   }, [selectedDate, isCheckedIn, shifts]);
+
+  // Realtime: while viewing TODAY, silently refresh every 10s so the live work timers
+  // pick up new sessions / breaks (e.g. a break starting) and stay in sync with the
+  // Dashboard — including freezing on break. Past days are static; pauses when hidden.
+  React.useEffect(() => {
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    if (selectedDate !== todayStr) return;
+    const id = setInterval(() => { if (!document.hidden) fetchAttendance(true); }, 10000);
+    return () => clearInterval(id);
+  }, [selectedDate]);
 
   const handleUpdate = async () => {
     try {
@@ -333,9 +375,7 @@ const Attendance = () => {
                   </td>
                   <td className="px-5 py-3">
                     <div className="font-bold text-slate-900 text-sm">
-                      {record.is_checked_in
-                        ? <LiveTimer checkInTime={record.check_in} breakMins={record.total_break_minutes} />
-                        : minsToHMS(record.net_work_minutes)}
+                      <LiveWorkTimer record={record} />
                     </div>
                     {record.is_checked_in ? (
                       <div className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded text-[11px] font-bold mt-1 inline-block animate-pulse">● Working</div>
@@ -352,7 +392,7 @@ const Attendance = () => {
                         <div className="flex items-center gap-2">
                           <span className="w-[18px] h-[18px] rounded bg-emerald-100 flex items-center justify-center text-emerald-600 text-[9px] shrink-0">W</span>
                           <span className="text-slate-500 w-10">Work</span>
-                          <span className="text-emerald-700">{record.is_checked_in ? <LiveTimer checkInTime={record.check_in} breakMins={record.total_break_minutes} /> : minsToHMS(record.net_work_minutes)}</span>
+                          <span className="text-emerald-700"><LiveWorkTimer record={record} /></span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`w-[18px] h-[18px] rounded flex items-center justify-center text-[9px] shrink-0 ${record.breakExceeded ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>B</span>
