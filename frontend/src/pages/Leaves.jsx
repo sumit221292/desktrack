@@ -33,6 +33,7 @@ const Leaves = () => {
 
   const [showApply, setShowApply] = useState(false);
   const [showTypeModal, setShowTypeModal] = useState(false);
+  const [editBal, setEditBal] = useState(null); // HR: per-employee leave-balance allocation editor
   const [applyForm, setApplyForm] = useState({ leave_type_id: '', start_date: '', end_date: '', reason: '' });
   const [typeForm, setTypeForm] = useState({ name: '', code: '', annual_quota: 12, carry_forward: false, accrual_frequency: 'annual' });
   const [editingType, setEditingType] = useState(null);
@@ -154,6 +155,16 @@ const Leaves = () => {
     } catch (err) { alert('Failed to save leave type'); }
   };
 
+  // HR overrides one employee's allocation (total) for a leave type this year.
+  const handleSaveBalance = async (e) => {
+    e.preventDefault();
+    try {
+      await api.put('/leaves/balances', { employee_id: editBal.employee_id, leave_type_id: editBal.leave_type_id, year: currentYear, total: editBal.total });
+      setEditBal(null);
+      await fetchData();
+    } catch (err) { alert(err.response?.data?.error || 'Failed to update balance.'); }
+  };
+
   const handleDeleteType = async (id) => {
     if (!window.confirm('Delete this leave type?')) return;
     try { await api.delete(`/leaves/types/${id}`); await fetchData(); }
@@ -268,9 +279,15 @@ const Leaves = () => {
                       <td className="px-4 py-3 font-medium text-slate-800">{empName}</td>
                       {leaveTypes.map(lt => {
                         const bal = empBals.find(b => b.leave_type_id === lt.id);
+                        const cellInner = bal
+                          ? <span title={`Available ${bal.available ?? bal.remaining} · Accrued ${bal.accrued ?? bal.total} · Annual ${bal.total} · Used ${bal.used}`}><span className="font-bold text-emerald-700">{bal.available ?? bal.remaining}</span><span className="text-slate-400">/{bal.total}</span></span>
+                          : <span className="text-slate-300">{isHR ? '+ set' : '-'}</span>;
                         return (
                           <td key={lt.id} className="px-4 py-3 text-center">
-                            {bal ? <span className="text-xs" title={`Available ${bal.available ?? bal.remaining} · Accrued ${bal.accrued ?? bal.total} · Annual ${bal.total} · Used ${bal.used}`}><span className="font-bold text-emerald-700">{bal.available ?? bal.remaining}</span><span className="text-slate-400">/{bal.total}</span></span> : <span className="text-slate-300">-</span>}
+                            {isHR ? (
+                              <button type="button" onClick={() => setEditBal({ employee_id: empId, employee_name: empName, leave_type_id: lt.id, code: lt.code, name: lt.name, total: bal ? bal.total : (lt.annual_quota || 0), used: bal ? (parseInt(bal.used) || 0) : 0 })}
+                                className="text-xs rounded px-1.5 py-1 hover:bg-primary-50 cursor-pointer" title="Edit this employee's allocation">{cellInner}</button>
+                            ) : <span className="text-xs">{cellInner}</span>}
                           </td>
                         );
                       })}
@@ -399,6 +416,32 @@ const Leaves = () => {
             <Button type="submit" disabled={submitting}>{submitting ? 'Submitting...' : 'Submit Request'}</Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Edit Balance Modal (HR) — override one employee's allocation */}
+      <Modal isOpen={!!editBal} onClose={() => setEditBal(null)} title="Edit Leave Balance">
+        {editBal && (
+          <form onSubmit={handleSaveBalance} className="space-y-4">
+            <p className="text-sm text-slate-600"><span className="font-bold text-slate-800">{editBal.employee_name}</span> — {editBal.name} ({editBal.code}) · {currentYear}</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold text-slate-700 mb-1 block">Annual Allocation (Total)</label>
+                <Input type="number" min="0" autoFocus value={editBal.total} onChange={e => setEditBal({ ...editBal, total: parseInt(e.target.value) || 0 })} />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-700 mb-1 block">Used (auto)</label>
+                <Input type="number" value={editBal.used} disabled className="bg-slate-100 text-slate-500" />
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500 bg-slate-50 px-2.5 py-1.5 rounded-lg">
+              Remaining will be <strong>{Math.max(0, (parseInt(editBal.total) || 0) - (parseInt(editBal.used) || 0))}</strong>. Lowering the total removes leaves from this employee's bucket; raising it adds more. (Monthly-accrual types ramp up to this total over the year.)
+            </p>
+            <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
+              <Button variant="ghost" type="button" onClick={() => setEditBal(null)}>Cancel</Button>
+              <Button type="submit">Save</Button>
+            </div>
+          </form>
+        )}
       </Modal>
 
       {/* Manage Leave Types Modal */}

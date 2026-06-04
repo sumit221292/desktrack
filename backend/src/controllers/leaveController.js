@@ -150,7 +150,8 @@ const applyLeave = async (req, res) => {
     const lt = ltResult.rows[0];
     if (lt && (parseInt(lt.annual_quota) || 0) > 0 && balResult.rows.length > 0) {
       const used = parseInt(balResult.rows[0].used) || 0;
-      const available = Math.max(0, accruedToDate(lt, year) - used);
+      // Cap = this employee's allocated `total` (HR-overridable), ramped by the type's accrual mode.
+      const available = Math.max(0, accruedToDate({ annual_quota: balResult.rows[0].total, accrual_frequency: lt.accrual_frequency }, year) - used);
       if (days > available) {
         const rate = (parseInt(lt.annual_quota) || 0) / 12;
         const note = lt.accrual_frequency === 'monthly' ? ` (accrues ${rate % 1 === 0 ? rate : rate.toFixed(2)}/month)` : '';
@@ -289,9 +290,10 @@ const getLeaveBalances = async (req, res) => {
     if (employeeId) { sql += ' AND lb.employee_id = $3'; p.push(employeeId); }
     const result = await query(sql, p);
     const rows = result.rows.map(r => {
-      // accrued = days earned so far (monthly types ramp up over the year; annual = full quota).
-      // available = accrued − used (for annual types this equals `remaining`).
-      const accrued = accruedToDate({ annual_quota: r.annual_quota, accrual_frequency: r.accrual_frequency }, parseInt(r.year));
+      // accrued = days earned so far. The cap is the BALANCE's `total` (the per-employee
+      // allocation HR can override), not the type's annual_quota — so a custom allocation
+      // (e.g. CL 6 for one employee) is respected. Monthly types ramp `total` over the year.
+      const accrued = accruedToDate({ annual_quota: r.total, accrual_frequency: r.accrual_frequency }, parseInt(r.year));
       const available = Math.max(0, accrued - (parseInt(r.used) || 0));
       return {
         ...r,
@@ -333,8 +335,38 @@ const initBalances = async (req, res) => {
   }
 };
 
+// HR overrides ONE employee's allocation (`total`) for a leave type + year. `used` is
+// preserved (it's driven by approvals); remaining = total − used. Creates the row if absent.
+const adjustBalance = async (req, res) => {
+  try {
+    const companyId = req.tenantId;
+    const employee_id = parseInt(req.body.employee_id);
+    const leave_type_id = parseInt(req.body.leave_type_id);
+    const year = parseInt(req.body.year) || new Date().getFullYear();
+    if (!employee_id || !leave_type_id) return res.status(400).json({ error: 'employee_id and leave_type_id are required.' });
+    const newTotal = Math.max(0, Math.round(parseFloat(req.body.total) || 0));
+
+    const existing = await query(
+      'SELECT used FROM leave_balances WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3 AND company_id = $4',
+      [employee_id, leave_type_id, year, companyId]
+    );
+    const used = existing.rows.length ? (parseInt(existing.rows[0].used) || 0) : 0;
+    const remaining = Math.max(0, newTotal - used);
+    await query(
+      `INSERT INTO leave_balances (company_id, employee_id, leave_type_id, year, total, used, remaining)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (employee_id, leave_type_id, year) DO UPDATE SET total = $5, remaining = $7`,
+      [companyId, employee_id, leave_type_id, year, newTotal, used, remaining]
+    );
+    res.json({ message: 'Updated.', employee_id, leave_type_id, year, total: newTotal, used, remaining });
+  } catch (err) {
+    console.error('Adjust Balance Error:', err);
+    res.status(500).json({ error: 'Server error.' });
+  }
+};
+
 module.exports = {
   getLeaveTypes, createLeaveType, updateLeaveType, deleteLeaveType,
   getLeaveRequests, applyLeave, reviewLeave, cancelLeave,
-  getLeaveBalances, initBalances
+  getLeaveBalances, initBalances, adjustBalance
 };

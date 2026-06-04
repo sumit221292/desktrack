@@ -23,5 +23,6 @@ router.put('/requests/:id/cancel', c.cancelLeave); // owner (any role) or HR —
 // Leave Balances
 router.get('/balances', c.getLeaveBalances);
 router.post('/balances/init', checkRole(HR), c.initBalances);
+router.put('/balances', checkRole(HR), c.adjustBalance); // HR overrides one employee's allocation
 
 module.exports = router;
