@@ -917,7 +917,12 @@ const getDailyAttendance = async (companyId, dateStr) => {
   await closeMissedCheckouts(companyId);
 
   const tz = await getCompanyTimezone(companyId);
-  const employees = await query('SELECT * FROM employees WHERE company_id = $1', [companyId]);
+  const employees = await query(
+    `SELECT e.*, d.name AS designation
+     FROM employees e LEFT JOIN designations d ON d.id = e.designation_id
+     WHERE e.company_id = $1`,
+    [companyId]
+  );
 
   // Timestamps are stored as the UTC instant; match rows whose IST calendar day equals
   // the requested date (so a 00:00–05:30 IST check-in isn't filed onto the previous day).
@@ -1017,6 +1022,7 @@ const getDailyAttendance = async (companyId, dateStr) => {
         } : {}),
         name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown',
         role: emp.role,
+        designation: emp.designation || null,
         workHours: netMins > 0 ? fmtTime(netMins) : (isCheckedIn ? 'In Progress' : '0h 00m'),
         missedCheckout,
         expectedCheckout: expectedOutISO.toISOString(),
@@ -1038,6 +1044,8 @@ const getDailyAttendance = async (companyId, dateStr) => {
       email: emp.email,
       is_checked_in: false,
       name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown',
+      role: emp.role,
+      designation: emp.designation || null,
       status: nonWorkingStatus,
       check_in: '-',
       check_out: '-',

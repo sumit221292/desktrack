@@ -97,7 +97,14 @@ export const AuthProvider = ({ children }) => {
         const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         const response = await api.get(`/attendance?date=${today}`);
         const myRecord = response.data.find(r => (r.email && user.email && r.email.toLowerCase() === user.email.toLowerCase()) || r.employee_id === user.id);
-        
+
+        // Enrich the logged-in user with their job title for the Topbar (no re-login needed).
+        if (myRecord?.designation && myRecord.designation !== user.designation) {
+          const updated = { ...user, designation: myRecord.designation };
+          setUser(updated);
+          localStorage.setItem('user', JSON.stringify(updated));
+        }
+
         if (myRecord && myRecord.is_checked_in && !String(myRecord.id).startsWith('dummy-') && !String(myRecord.id).startsWith('no-ref-')) {
           setIsCheckedIn(true);
           setAttendanceId(myRecord.id);

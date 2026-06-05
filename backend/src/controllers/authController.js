@@ -37,12 +37,24 @@ const login = async (req, res) => {
       { expiresIn: '24h' }
     );
 
+    // Job title for display (falls back to role in the UI when absent).
+    let designation = null;
+    try {
+      const dRes = await query(
+        `SELECT d.name FROM employees e LEFT JOIN designations d ON d.id = e.designation_id
+         WHERE e.email = $1 AND e.company_id = $2 LIMIT 1`,
+        [user.email, user.company_id]
+      );
+      designation = dRes.rows[0]?.name || null;
+    } catch (e) { /* non-fatal */ }
+
     res.json({
       token,
       user: {
         id: user.id,
         email: user.email,
         role: user.role,
+        designation,
         tenantId: user.company_id
       }
     });
@@ -208,6 +220,17 @@ const googleLogin = async (req, res) => {
     // 6. Derive tenant slug from domain
     const tenantSlug = emailDomain.split('.')[0];
 
+    // Job title for display (falls back to role in the UI when absent).
+    let designation = null;
+    try {
+      const dRes = await query(
+        `SELECT d.name FROM employees e LEFT JOIN designations d ON d.id = e.designation_id
+         WHERE e.email = $1 AND e.company_id = $2 LIMIT 1`,
+        [user.email, companyId]
+      );
+      designation = dRes.rows[0]?.name || null;
+    } catch (e) { /* non-fatal */ }
+
     res.json({
       token,
       user: {
@@ -216,6 +239,7 @@ const googleLogin = async (req, res) => {
         name: user.name,
         picture: user.picture,
         role: user.role,
+        designation,
         tenantId: companyId
       },
       tenantSlug

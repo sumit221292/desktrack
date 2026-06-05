@@ -66,7 +66,7 @@ const Topbar = () => {
             )}
             <div className="hidden md:block">
               <p className="text-sm font-bold text-slate-700 leading-tight group-hover:text-primary-700 transition-colors">{user?.name || user?.email || 'Admin User'}</p>
-              <p className="text-xs text-slate-500 font-medium">{user?.role || 'HR Admin'}</p>
+              <p className="text-xs text-slate-500 font-medium">{user?.designation || user?.role || 'HR Admin'}</p>
             </div>
             <ChevronDown size={16} className={`text-slate-400 group-hover:text-primary-600 transition-transform ${showProfile ? 'rotate-180' : ''}`} />
           </div>

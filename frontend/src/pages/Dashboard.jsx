@@ -26,6 +26,7 @@ const buildRecentActivity = (rows) => rows.map((a) => {
     time: new Date(a.check_in).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }),
     status: statusStr,
     role: a.role || 'Employee',
+    designation: a.designation || null,
     cfg: getStatusConfig(statusStr),
     liveStatus,
     liveCfg: liveStatus ? getStatusConfig(liveStatus) : null,
@@ -714,7 +715,7 @@ const Dashboard = () => {
                   <div>
                     <p className="font-bold text-slate-800 text-sm group-hover:text-primary-700 transition-colors underline-offset-2 group-hover:underline">{usr.name}</p>
                     <p className="text-xs text-slate-500 font-medium flex items-center gap-1.5 flex-wrap">
-                      <span>{usr.role} &bull; Check-in: {usr.time}</span>
+                      <span>{usr.designation || usr.role} &bull; Check-in: {usr.time}</span>
                       {usr.liveCfg && (
                         <span className={`px-1.5 py-px rounded text-[9px] font-bold border ${usr.cfg.tw}`}>{usr.cfg.label}</span>
                       )}
