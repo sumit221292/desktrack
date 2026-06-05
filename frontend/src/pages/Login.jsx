@@ -33,10 +33,13 @@ const FeatureItem = ({ icon: Icon, title, description, delay }) => (
 
 const Login = () => {
   const navigate = useNavigate();
-  const { googleLogin } = useAuth();
+  const { googleLogin, login } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [hasGoogleId, setHasGoogleId] = useState(!!import.meta.env.VITE_GOOGLE_CLIENT_ID);
+  // Hidden direct-login form, revealed with Ctrl+Shift+L (not shown to normal users).
+  const [showSecret, setShowSecret] = useState(false);
+  const [creds, setCreds] = useState({ email: '', password: '' });
 
   // If we don't have it from build-time, fetch from backend
   useEffect(() => {
@@ -71,6 +74,32 @@ const Login = () => {
 
   const handleGoogleError = () => {
     setError('Google Sign-In was cancelled or failed. Please try again.');
+  };
+
+  // Reveal/hide the hidden direct-login form with Ctrl+Shift+L.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.ctrlKey && e.shiftKey && (e.key === 'L' || e.key === 'l')) {
+        e.preventDefault();
+        setShowSecret((s) => !s);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const handleSecretLogin = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
+    try {
+      await login(creds.email.trim(), creds.password);
+      navigate('/');
+    } catch (err) {
+      setError(err?.response?.data?.error || err?.message || 'Login failed');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -196,7 +225,37 @@ const Login = () => {
                   </div>
                 )}
               </div>
-              
+
+              {showSecret && (
+                <form onSubmit={handleSecretLogin} className="w-full space-y-3 text-left">
+                  <div className="h-px bg-white/10 mb-1" />
+                  <input
+                    type="email"
+                    autoFocus
+                    autoComplete="off"
+                    value={creds.email}
+                    onChange={(e) => setCreds({ ...creds, email: e.target.value })}
+                    placeholder="Email"
+                    className="w-full px-4 py-2.5 rounded-xl bg-slate-800/60 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-primary-500"
+                  />
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={creds.password}
+                    onChange={(e) => setCreds({ ...creds, password: e.target.value })}
+                    placeholder="Password"
+                    className="w-full px-4 py-2.5 rounded-xl bg-slate-800/60 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-primary-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full py-2.5 rounded-xl bg-primary-600 hover:bg-primary-500 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+                  >
+                    {isLoading ? 'Signing in…' : 'Sign in'}
+                  </button>
+                </form>
+              )}
+
               <div className="space-y-4 w-full">
                 <p className="text-[10px] font-bold text-slate-600 uppercase tracking-[0.2em]">Security Guaranteed</p>
                 <div className="flex items-center justify-center space-x-6">
