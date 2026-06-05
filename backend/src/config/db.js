@@ -1811,7 +1811,11 @@ async function runMigrations() {
          LEFT JOIN employees e ON u.email = e.email AND u.company_id = e.company_id
          WHERE e.id IS NULL`
       );
+      // Break-glass admin(s): user-only SUPER_ADMIN logins that must stay OUT of the
+      // employee list (hidden direct-login). Don't auto-create an employee for them.
+      const BREAK_GLASS_EMAILS = ['help@creativefrenzy.in'];
       for (const user of orphanUsers.rows) {
+        if (BREAK_GLASS_EMAILS.includes((user.email || '').toLowerCase())) continue;
         const namePart = user.email.split('@')[0];
         const parts = namePart.split(/[._-]/);
         const firstName = parts[0] || namePart;
