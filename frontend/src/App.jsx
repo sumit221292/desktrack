@@ -12,6 +12,7 @@ import Payroll from './pages/Payroll';
 import Performance from './pages/Performance';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
+import RulesPolicies from './pages/RulesPolicies';
 import Login from './pages/Login';
 
 const ProtectedRoute = ({ children }) => {
@@ -47,6 +48,7 @@ function App() {
             <Route path="payroll" element={<Payroll />} />
             <Route path="performance" element={<Performance />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="rules" element={<RulesPolicies />} />
             <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>

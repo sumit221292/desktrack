@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, Users, Clock, Calendar, CalendarDays,
   CreditCard, FileBarChart, Settings, LogOut,
-  ChevronLeft, ChevronRight, TrendingUp
+  ChevronLeft, ChevronRight, TrendingUp, ScrollText
 } from 'lucide-react';
 import { cn } from '../ui/Button';
 import Logo from '../ui/Logo';
@@ -23,6 +23,7 @@ const Sidebar = () => {
     { icon: CreditCard, label: 'Payroll', path: '/payroll', module: 'payroll' },
     { icon: TrendingUp, label: 'Performance', path: '/performance', module: 'performance' },
     { icon: FileBarChart, label: 'Reports', path: '/reports', module: 'reports' },
+    { icon: ScrollText, label: 'Rules & Policies', path: '/rules' },
     { icon: Settings, label: 'Settings', path: '/settings', module: 'settings' },
   ].filter(item => {
     if (item.module && !enabledModules[item.module] && item.module !== 'settings') return false;
