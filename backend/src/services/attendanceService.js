@@ -102,8 +102,17 @@ const closeMissedCheckouts = async (companyId) => {
     const maxShiftMins = (parseFloat(shift0.total_working_hours) || 9) * 60;
     const brkCfg = await getBreakConfig(companyId);
 
-    // Attendance records from a PREVIOUS day that were never checked out.
-    const open = await query('SELECT * FROM attendance WHERE company_id = $1 AND check_out IS NULL', [companyId]);
+    // Attendance records from a PREVIOUS day that were never fully closed: either the
+    // header has no checkout, OR a re-check-in left a dangling open session (the header
+    // looks COMPLETE but a session is still open and would run forever in the live timer).
+    const open = await query(
+      `SELECT * FROM attendance a
+       WHERE a.company_id = $1
+         AND ( a.check_out IS NULL
+            OR EXISTS (SELECT 1 FROM attendance_sessions s
+                       WHERE s.attendance_id = a.id AND s.check_out IS NULL) )`,
+      [companyId]
+    );
     for (const rec of open.rows) {
       const attDate = rec.check_in ? dateInTz(rec.check_in, companyTz) : null;
       if (!attDate || attDate >= today) continue; // today / still in progress — leave it
