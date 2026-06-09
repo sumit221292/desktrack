@@ -84,7 +84,7 @@ const IndividualCalendar = ({ emp, records, specialEvents, weeks, month, year, t
   const fmtTime = (iso) => { try { return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }); } catch { return ''; } };
 
   // Tally the month's per-day records
-  const c = { present: 0, late: 0, absent: 0, halfday: 0, leave: 0, holiday: 0, weekoff: 0, lop: 0 };
+  const c = { present: 0, late: 0, absent: 0, insufficient: 0, halfday: 0, leave: 0, holiday: 0, weekoff: 0, lop: 0 };
   let workingDays = 0, elapsedWorking = 0;
   const dim = new Date(year, month, 0).getDate();
   for (let d = 1; d <= dim; d++) {
@@ -99,13 +99,15 @@ const IndividualCalendar = ({ emp, records, specialEvents, weeks, month, year, t
     else if (s === 'HALF DAY' || s === 'HALFDAY') c.halfday++;
     else if (s === 'LEAVE') c.leave += recs[ds]?.half ? 0.5 : 1;   // half-day leave counts as 0.5
     else if (s === 'LOP') c.lop += recs[ds]?.half ? 0.5 : 1;
+    else if (s === 'INSUFFICIENT') c.insufficient++;   // came but below half-day min — not payable
     else if (s === 'ABSENT') c.absent++;
   }
   const attended = c.present + c.late + c.halfday;
-  const payable = c.present + c.late + 0.5 * c.halfday + c.leave;
+  const payable = c.present + c.late + 0.5 * c.halfday + c.leave;   // insufficient/absent excluded (no pay)
   const pct = elapsedWorking > 0 ? Math.round(attended / elapsedWorking * 100) : 0;
   const cards = [
     ['Present', c.present, 'PRESENT'], ['Late', c.late, 'LATE'], ['Absent', c.absent, 'ABSENT'],
+    ['Insufficient', c.insufficient, 'INSUFFICIENT'],
     ['Half Day', c.halfday, 'HALF DAY'], ['Leave', c.leave, 'LEAVE'], ['Holiday', c.holiday, 'OFFICE HOLIDAY'],
     ['Week-Off', c.weekoff, 'WEEKEND'], ['LOP', c.lop, 'LOP'],
   ];
@@ -389,7 +391,7 @@ const AttendanceCalendar = () => {
         <div className="p-4 border-t border-slate-100">
           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Legend</p>
           <div className="grid grid-cols-2 gap-1">
-            {['PRESENT','LATE','OVER LATE','HALF DAY','ABSENT','LEAVE','LOP','WEEKEND','OFFICE HOLIDAY'].map(key => {
+            {['PRESENT','LATE','OVER LATE','HALF DAY','INSUFFICIENT','ABSENT','LEAVE','LOP','WEEKEND','OFFICE HOLIDAY'].map(key => {
               const val = getStatusConfig(key);
               return (
                 <div key={key} className="flex items-center gap-1.5">

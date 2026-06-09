@@ -329,6 +329,7 @@ const Attendance = () => {
                 <option value="Present">Present</option>
                 <option value="Late">Late</option>
                 <option value="Absent">Absent</option>
+                <option value="INSUFFICIENT">Insufficient Hours</option>
               </select>
               <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-secondary-500">
                 <Filter size={16} />

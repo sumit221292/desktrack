@@ -405,9 +405,12 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
 
   // DAY STATUS (presence-based, NO grace). Only decided once a checkout exists; for a
   // missed checkout `checkOut` is the last known activity, and it can never be FULL.
-  let dayStatus = null; // 'FULL' | 'HALF DAY' | 'ABSENT' | null (in progress)
+  // 'INSUFFICIENT' = checked in but presence below the half-day minimum (came, left
+  // early). Distinct from a true ABSENT (no check-in at all, set in getDailyAttendance /
+  // getMonthlyAttendance). Not payable — same payroll treatment as absent.
+  let dayStatus = null; // 'FULL' | 'HALF DAY' | 'INSUFFICIENT' | null (in progress)
   if (lastCheckOut) {
-    if (effectivePresenceMinutes < shiftDurationMins / 2) dayStatus = 'ABSENT';
+    if (effectivePresenceMinutes < shiftDurationMins / 2) dayStatus = 'INSUFFICIENT';
     else if (missedCheckout || effectivePresenceMinutes < shiftDurationMins) dayStatus = 'HALF DAY';
     else dayStatus = 'FULL';
   }
@@ -426,8 +429,10 @@ const calculateAttendance = (shift, checkIn, checkOut, events = [], sessions = [
   if (arrivalStatus === 'late') flags.push('LATE_ARRIVAL');
   if (arrivalStatus === 'overlate') flags.push('OVERLATE_ARRIVAL');
   // HALFDAY / ABSENT flags drive payroll → keep them in sync with the day status.
+  // INSUFFICIENT keeps the ABSENT flag (so payroll treats it as a non-payable day,
+  // unchanged) plus its own flag so the UI can label it distinctly.
   if (dayStatus === 'HALF DAY' || arrivalStatus === 'halfday') flags.push('HALFDAY');
-  if (dayStatus === 'ABSENT') flags.push('ABSENT');
+  if (dayStatus === 'INSUFFICIENT') { flags.push('ABSENT'); flags.push('INSUFFICIENT'); }
   if (missedCheckout) flags.push('MISSED_CHECKOUT');
   if (overtimeMinutes > 0) flags.push('OVERTIME');
   if (netWorkMinutes > 0 && netWorkMinutes < 240) flags.push('SHORT_DAY');
@@ -1005,9 +1010,10 @@ const getDailyAttendance = async (companyId, dateStr) => {
       // still checked in (no day_status yet) we show the arrival label.
       const arrStatus = daily_attendance.arrival_status || 'on_time';
       const arrivalLabel = arrStatus === 'late' ? 'LATE' : arrStatus === 'overlate' ? 'OVER LATE' : arrStatus === 'halfday' ? 'HALF DAY' : 'ON TIME';
-      const ds = daily_attendance.day_status; // 'FULL' | 'HALF DAY' | 'ABSENT' | null
+      const ds = daily_attendance.day_status; // 'FULL' | 'HALF DAY' | 'INSUFFICIENT' | null
       let displayStatus = arrivalLabel;
       if (ds === 'ABSENT') displayStatus = 'ABSENT';
+      else if (ds === 'INSUFFICIENT') displayStatus = 'INSUFFICIENT';
       else if (ds === 'HALF DAY') displayStatus = 'HALF DAY';
 
       const netMins = daily_attendance.net_work_minutes || 0;
@@ -1244,9 +1250,9 @@ const getMonthlyAttendance = async (companyId, month, year) => {
         displayStatus = base;
       } else if (hasSessions) {
         const ds = daily_attendance.day_status;
-        displayStatus = ds === 'ABSENT' ? 'ABSENT' : ds === 'HALF DAY' ? 'HALF DAY' : base;
+        displayStatus = ds === 'ABSENT' ? 'ABSENT' : ds === 'INSUFFICIENT' ? 'INSUFFICIENT' : ds === 'HALF DAY' ? 'HALF DAY' : base;
       } else {
-        displayStatus = attFlags.includes('ABSENT') ? 'ABSENT' : attFlags.includes('HALFDAY') ? 'HALF DAY' : base;
+        displayStatus = attFlags.includes('INSUFFICIENT') ? 'INSUFFICIENT' : attFlags.includes('ABSENT') ? 'ABSENT' : attFlags.includes('HALFDAY') ? 'HALF DAY' : base;
       }
 
       const netMins = daily_attendance.net_work_minutes || 0;

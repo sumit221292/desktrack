@@ -14,6 +14,7 @@ export const STATUS_CONFIG = {
   'HALF DAY':       { color: '#9333ea', bg: '#f3e8ff', border: '#e9d5ff', label: 'Half Day',      short: 'HD', tw: 'bg-purple-50 text-purple-700 border-purple-200' },
   'HALFDAY':        { color: '#9333ea', bg: '#f3e8ff', border: '#e9d5ff', label: 'Half Day',      short: 'HD', tw: 'bg-purple-50 text-purple-700 border-purple-200' },
   'ABSENT':         { color: '#dc2626', bg: '#fee2e2', border: '#fecaca', label: 'Absent',        short: 'A',  tw: 'bg-red-50 text-red-700 border-red-200' },
+  'INSUFFICIENT':   { color: '#e11d48', bg: '#fff1f2', border: '#fecdd3', label: 'Insufficient Hours', short: 'IH', tw: 'bg-rose-50 text-rose-700 border-rose-200' },
   'WEEKEND':        { color: '#94a3b8', bg: '#f1f5f9', border: '#e2e8f0', label: 'Week-off',      short: 'WO', tw: 'bg-slate-50 text-slate-400 border-slate-200' },
   'INCOMPLETE':     { color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe', label: 'Active',        short: 'AC', tw: 'bg-blue-50 text-blue-700 border-blue-200' },
   'LEAVE':          { color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe', label: 'Leave',         short: 'L',  tw: 'bg-blue-50 text-blue-700 border-blue-200' },
